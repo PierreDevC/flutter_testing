@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 import '../core/theme.dart';
-import 'mortgage_calculator_page.dart';
+import 'scenario_list_page.dart';
 
 class ToolsPage extends StatelessWidget {
   const ToolsPage({super.key});
@@ -26,6 +26,14 @@ class ToolsPage extends StatelessWidget {
                   'Estimate how much you can borrow based on your income and debts.',
               color: const Color(0xFF3DAA5C),
               bgColor: const Color(0xFFDCF5DC),
+              onTap: () {
+                Navigator.push(
+                  context,
+                  MaterialPageRoute(
+                    builder: (context) => const ScenarioListPage(type: ScenarioToolType.prequal),
+                  ),
+                );
+              },
             ),
             const SizedBox(height: 12),
             _toolItem(
@@ -39,29 +47,10 @@ class ToolsPage extends StatelessWidget {
                 Navigator.push(
                   context,
                   MaterialPageRoute(
-                    builder: (context) => const MortgageCalculatorPage(),
+                    builder: (context) => const ScenarioListPage(type: ScenarioToolType.mortgage),
                   ),
                 );
               },
-            ),
-            const SizedBox(height: 12),
-            _toolItem(
-              icon: Icons.home_work_outlined,
-              label: 'FSHA Calculator',
-              description:
-                  'Explore government housing programs and incentives.',
-              color: const Color(0xFFD07A2B),
-              bgColor: const Color(0xFFF9EEDC),
-            ),
-            const SizedBox(height: 12),
-            _toolItem(
-              icon: Icons.compare_arrows_rounded,
-              label: 'Comparison Tool',
-              description:
-                  'Compare multiple mortgage scenarios side by side.',
-              color: Colors.grey,
-              bgColor: const Color(0xFFF0F0F0),
-              comingSoon: true,
             ),
             const SizedBox(height: 32),
           ],

@@ -1,44 +1,44 @@
 import '../core/mortgage_math.dart';
 
+enum MortgageCalcType { payment, remainingBalance, rate, amortization, reverse }
+
 class MortgageScenario {
   final String id;
   final String name;
+  final MortgageCalcType calcType;
 
-  // Property & down payment
-  final double propertyPrice;
-  final double downPayment;
-
-  // Loan
-  final double loanAmount;        // before CMHC
-  final double effectivePrincipal; // loanAmount + cmhcPremium
-  final double cmhcPremium;
-
-  // Rate & term
-  final double annualRatePct; // e.g. 5.25
+  // Basic Variables
+  final double mortgageAmount;
+  final double annualRatePct;
   final int amortizationYears;
-  final int termYears;
-
-  // Payment
-  final PaymentFrequency frequency;
-  final double payment;       // per selected frequency
   final double monthlyPayment;
+  final int showBalanceAtYear;
+  final DateTime startDate;
+  
+  // Strategy Variables
+  final PaymentFrequency frequency;
+  final double annualLumpSum;
+  final double extraPerPayment;
+  final double paymentIncreasePct;
+  final bool doubleUp;
 
   final DateTime savedAt;
 
-  const MortgageScenario({
+  MortgageScenario({
     required this.id,
     required this.name,
-    required this.propertyPrice,
-    required this.downPayment,
-    required this.loanAmount,
-    required this.effectivePrincipal,
-    required this.cmhcPremium,
+    required this.calcType,
+    required this.mortgageAmount,
     required this.annualRatePct,
     required this.amortizationYears,
-    required this.termYears,
-    required this.frequency,
-    required this.payment,
     required this.monthlyPayment,
+    required this.showBalanceAtYear,
+    required this.startDate,
     required this.savedAt,
+    this.frequency = PaymentFrequency.monthly,
+    this.annualLumpSum = 0,
+    this.extraPerPayment = 0,
+    this.paymentIncreasePct = 0,
+    this.doubleUp = false,
   });
 }

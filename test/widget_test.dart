@@ -16,6 +16,6 @@ void main() {
 
     // Verify that our welcome screen is shown.
     expect(find.text('Try Demo'), findsOneWidget);
-    expect(find.text('Casa'), findsOneWidget);
+    expect(find.text('MortWise'), findsOneWidget);
   });
 }

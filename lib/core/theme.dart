@@ -14,11 +14,11 @@ const kBeige     = Color(0xFFF5EDD8);  // beige text / buttons
 TextStyle serif(
   double size, {
   FontWeight weight = FontWeight.w500,
-  Color color = const Color(0xFF1A1A1A),
+  Color? color,
   double? height,
 }) =>
     GoogleFonts.playfairDisplay(
-        fontSize: size, fontWeight: weight, color: color, height: height);
+        fontSize: size, fontWeight: weight, color: color ?? const Color(0xFF1A1A1A), height: height);
 
 TextStyle sans(
   double size, {

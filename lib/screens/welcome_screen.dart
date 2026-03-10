@@ -29,15 +29,24 @@ class WelcomeScreen extends StatelessWidget {
           SafeArea(
             child: Padding(
               padding: const EdgeInsets.symmetric(horizontal: 28),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.stretch,
-                children: [
-                  const SizedBox(height: 64),
-                  _buildBranding(),
-                  const Spacer(),
-                  _buildAuthButtons(context),
-                  const SizedBox(height: 44),
-                ],
+              child: LayoutBuilder(
+                builder: (context, constraints) => SingleChildScrollView(
+                  child: ConstrainedBox(
+                    constraints: BoxConstraints(minHeight: constraints.maxHeight),
+                    child: IntrinsicHeight(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.stretch,
+                        children: [
+                          const SizedBox(height: 64),
+                          _buildBranding(),
+                          const Spacer(),
+                          _buildAuthButtons(context),
+                          const SizedBox(height: 44),
+                        ],
+                      ),
+                    ),
+                  ),
+                ),
               ),
             ),
           ),
@@ -69,7 +78,7 @@ class WelcomeScreen extends StatelessWidget {
           child: const Icon(Icons.home_work_outlined, color: kBeige, size: 28),
         ),
         const SizedBox(height: 28),
-        Text('Casa', style: serif(58, color: kBeige)),
+        Text('MortWise', style: serif(58, color: kBeige)),
         const SizedBox(height: 12),
         Text(
           'Mortgage planning,\nsimplified.',

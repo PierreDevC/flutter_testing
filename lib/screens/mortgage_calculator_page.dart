@@ -1,1528 +1,772 @@
 import 'dart:math';
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
 import 'package:intl/intl.dart';
 import '../core/theme.dart';
 import '../core/mortgage_math.dart';
 import '../models/mortgage_scenario.dart';
 import '../services/scenario_service.dart';
 
-// ─── Mode ─────────────────────────────────────────────────────────────────────
+// ─── Modes ────────────────────────────────────────────────────────────────────
 
-enum CalcMode { payment, amount, rate, amortization }
+enum CalcType {
+  payment('Mortgage Payment', 'Calculate your periodic payments'),
+  amount('Remaining Balance', 'See your balance over time'),
+  rate('Interest Rate', 'Find the implied interest rate'),
+  amortization('Amortization', 'Calculate years to pay off'),
+  reverse('Reverse Mortgage', 'Calculate future compounding debt');
 
-// ─── Computed result ──────────────────────────────────────────────────────────
+  final String label;
+  final String description;
+  const CalcType(this.label, this.description);
 
-class _Result {
-  final double payment;        // per selected frequency
-  final double monthlyPayment;
-  final double effectivePrincipal;
-  final double cmhcPremium;
-  final double loanAmount;
-  final double annualRate;
-  final int amortYears;
-  final double ltv;
-  final double firstInterest;
-  final double firstPrincipal;
-  final double totalInterest;
-  final double totalCost;
-  final double balanceAtEndOfTerm;
-  final double interestDuringTerm;
-  final List<YearlyRow> schedule;
-  final List<YearlyRow> scheduleNoPrepay; // for comparison
-  final double interestSaved;
+  MortgageCalcType get modelType {
+    switch (this) {
+      case CalcType.payment: return MortgageCalcType.payment;
+      case CalcType.amount: return MortgageCalcType.remainingBalance;
+      case CalcType.rate: return MortgageCalcType.rate;
+      case CalcType.amortization: return MortgageCalcType.amortization;
+      case CalcType.reverse: return MortgageCalcType.reverse;
+    }
+  }
 
-  const _Result({
-    required this.payment,
-    required this.monthlyPayment,
-    required this.effectivePrincipal,
-    required this.cmhcPremium,
-    required this.loanAmount,
-    required this.annualRate,
-    required this.amortYears,
-    required this.ltv,
-    required this.firstInterest,
-    required this.firstPrincipal,
-    required this.totalInterest,
-    required this.totalCost,
-    required this.balanceAtEndOfTerm,
-    required this.interestDuringTerm,
-    required this.schedule,
-    required this.scheduleNoPrepay,
-    required this.interestSaved,
-  });
+  static CalcType fromModel(MortgageCalcType type) {
+    switch (type) {
+      case MortgageCalcType.payment: return CalcType.payment;
+      case MortgageCalcType.remainingBalance: return CalcType.amount;
+      case MortgageCalcType.rate: return CalcType.rate;
+      case MortgageCalcType.amortization: return CalcType.amortization;
+      case MortgageCalcType.reverse: return CalcType.reverse;
+    }
+  }
 }
-
-// ─── Formatters ───────────────────────────────────────────────────────────────
-
-final _currencyFmt = NumberFormat.currency(symbol: '\$', decimalDigits: 0);
-final _currency2Fmt = NumberFormat.currency(symbol: '\$', decimalDigits: 2);
-String _fmtCurrency(double v) => _currencyFmt.format(v);
-String _fmtCurrency2(double v) => _currency2Fmt.format(v);
-String _fmtPct(double v) => '${(v * 100).toStringAsFixed(2)}%';
-String _fmtPctPct(double v) => '${v.toStringAsFixed(2)}%'; // v already in %
 
 // ─── Page ─────────────────────────────────────────────────────────────────────
 
 class MortgageCalculatorPage extends StatefulWidget {
-  const MortgageCalculatorPage({super.key});
+  final MortgageScenario? initialScenario;
+  const MortgageCalculatorPage({super.key, this.initialScenario});
 
   @override
   State<MortgageCalculatorPage> createState() => _MortgageCalculatorPageState();
 }
 
 class _MortgageCalculatorPageState extends State<MortgageCalculatorPage> {
-  // Mode
-  CalcMode _mode = CalcMode.payment;
+  late CalcType _type;
 
-  // Core inputs
-  double _loanAmount = 388000;
-  double _ratePct = 5.25; // as % (e.g. 5.25)
-  int _amortYears = 25;
-  double _paymentInput = 2142;
+  // Basic Variables
+  late double _mortgage;
+  late double _rate;
+  late int _amortYears;
+  late double _payment;
+  late int _showBalanceAtYear;
+  late DateTime _startDate;
 
-  // Down payment section
-  double _propertyPrice = 485000;
-  double _downPaymentAbs = 97000;
-  bool _downAsPct = false;
+  // Strategy Variables
+  late PaymentFrequency _frequency;
+  late double _annualLumpSum;
+  late double _extraPerPayment;
+  late double _paymentIncreasePct;
+  late bool _doubleUp;
 
-  // Additional
-  PaymentFrequency _frequency = PaymentFrequency.monthly;
-  int _termYears = 5;
-  DateTime _firstPaymentDate = DateTime.now();
-  bool _showStressTest = false;
+  final _fmt = NumberFormat.currency(symbol: '\$', decimalDigits: 0);
 
-  // Prepayments
-  bool _showPrepayment = false;
-  double _lumpSum = 0;
-  double _extraPerPayment = 0;
-
-  // UI
-  bool _showMonthly = false;
-
-  // ── Sync helpers ────────────────────────────────────────────────────────────
-
-  void _onPropertyPriceChanged(double v) {
-    final pct = _propertyPrice > 0 ? _downPaymentAbs / _propertyPrice : 0.20;
-    setState(() {
-      _propertyPrice = v;
-      _downPaymentAbs = (v * pct).clamp(0, v);
-      _loanAmount = (_propertyPrice - _downPaymentAbs).clamp(0, 2000000);
-    });
-  }
-
-  void _onDownPaymentChanged(double v) {
-    setState(() {
-      _downPaymentAbs = v.clamp(0, _propertyPrice);
-      _loanAmount = (_propertyPrice - _downPaymentAbs).clamp(0, 2000000);
-    });
-  }
-
-  void _onLoanAmountChanged(double v) {
-    setState(() {
-      _loanAmount = v;
-      _downPaymentAbs = (_propertyPrice - v).clamp(0, _propertyPrice);
-    });
-  }
-
-  // ── Computed ────────────────────────────────────────────────────────────────
-
-  double get _annualRate => _ratePct / 100;
-  double get _downPct => _propertyPrice > 0 ? _downPaymentAbs / _propertyPrice : 0;
-  double get _cmhcPremium =>
-      MortgageMath.cmhcPremium(_loanAmount, _propertyPrice);
-  double get _effectivePrincipal => _loanAmount + _cmhcPremium;
-  double get _ltv =>
-      _propertyPrice > 0 ? _loanAmount / _propertyPrice : 0;
-
-  _Result _compute() {
-    // 1. Determine the "Final" inputs for this calculation cycle
-    double finalPrincipal = _effectivePrincipal;
-    double finalAnnualRate = _annualRate;
-    int finalAmortYears = _amortYears;
-    double finalPayment = 0;
-    double finalMonthlyPayment = 0;
-    double finalCmhc = _cmhcPremium;
-    double finalLoanAmount = _loanAmount;
-
-    switch (_mode) {
-      case CalcMode.payment:
-        finalPayment = MortgageMath.calcPayment(
-          principal: finalPrincipal,
-          annualRate: finalAnnualRate,
-          amortizationYears: finalAmortYears,
-          frequency: _frequency,
-        );
-        finalMonthlyPayment = MortgageMath.calcPayment(
-          principal: finalPrincipal,
-          annualRate: finalAnnualRate,
-          amortizationYears: finalAmortYears,
-          frequency: PaymentFrequency.monthly,
-        );
-
-      case CalcMode.amount:
-        // Input is _paymentInput (periodic payment)
-        // MortgageMath.calcPrincipal gives total effective principal (Loan + CMHC)
-        finalPrincipal = MortgageMath.calcPrincipal(
-          payment: _paymentInput,
-          annualRate: finalAnnualRate,
-          amortizationYears: finalAmortYears,
-          frequency: _frequency,
-        );
-        finalPayment = _paymentInput;
-        
-        // Solve for base loan amount (back out CMHC)
-        // Since CMHC is a % of loan amount based on LTV, and LTV = loan / price
-        // This is tricky if price isn't fixed. We assume the current _propertyPrice
-        // or a fixed down payment. Let's assume the user wants the max loan 
-        // given the current _downPaymentAbs or a target LTV.
-        // For simplicity in a calculator: Principal = Loan + CMHC(Loan, Price)
-        // We'll approximate the base loan by iterating or using the math:
-        // Loan = Principal / (1 + CMHC_Rate)
-        final ltv = _propertyPrice > 0 ? (finalPrincipal - _downPaymentAbs) / _propertyPrice : 0.80;
-        final cRate = MortgageMath.cmhcRate(ltv);
-        finalLoanAmount = finalPrincipal / (1 + cRate);
-        finalCmhc = finalPrincipal - finalLoanAmount;
-
-        finalMonthlyPayment = MortgageMath.calcPayment(
-          principal: finalPrincipal,
-          annualRate: finalAnnualRate,
-          amortizationYears: finalAmortYears,
-          frequency: PaymentFrequency.monthly,
-        );
-
-      case CalcMode.rate:
-        finalAnnualRate = MortgageMath.calcRate(
-          payment: _paymentInput,
-          principal: finalPrincipal,
-          amortizationYears: finalAmortYears,
-          frequency: _frequency,
-        );
-        finalPayment = _paymentInput;
-        finalMonthlyPayment = MortgageMath.calcPayment(
-          principal: finalPrincipal,
-          annualRate: finalAnnualRate,
-          amortizationYears: finalAmortYears,
-          frequency: PaymentFrequency.monthly,
-        );
-
-      case CalcMode.amortization:
-        finalAmortYears = MortgageMath.calcAmortization(
-          payment: _paymentInput,
-          principal: finalPrincipal,
-          annualRate: finalAnnualRate,
-          frequency: _frequency,
-        );
-        finalPayment = _paymentInput;
-        finalMonthlyPayment = MortgageMath.calcPayment(
-          principal: finalPrincipal,
-          annualRate: finalAnnualRate,
-          amortizationYears: finalAmortYears,
-          frequency: PaymentFrequency.monthly,
-        );
+  @override
+  void initState() {
+    super.initState();
+    final s = widget.initialScenario;
+    if (s != null) {
+      _type = CalcType.fromModel(s.calcType);
+      _mortgage = s.mortgageAmount;
+      _rate = s.annualRatePct;
+      _amortYears = s.amortizationYears;
+      _payment = s.monthlyPayment;
+      _showBalanceAtYear = s.showBalanceAtYear;
+      _startDate = s.startDate;
+      _frequency = s.frequency;
+      _annualLumpSum = s.annualLumpSum;
+      _extraPerPayment = s.extraPerPayment;
+      _paymentIncreasePct = s.paymentIncreasePct;
+      _doubleUp = s.doubleUp;
+    } else {
+      _type = CalcType.payment;
+      _mortgage = 450000;
+      _rate = 5.25;
+      _amortYears = 25;
+      _payment = 2500;
+      _showBalanceAtYear = 5;
+      _startDate = DateTime.now();
+      _frequency = PaymentFrequency.monthly;
+      _annualLumpSum = 0;
+      _extraPerPayment = 0;
+      _paymentIncreasePct = 0;
+      _doubleUp = false;
     }
+  }
 
-    // 2. Calculate derived outputs using the "Final" values
-    final r = MortgageMath.periodicRate(finalAnnualRate, _frequency);
-    final firstInterest = finalPrincipal * r;
-    final firstPrincipal = finalPayment - firstInterest;
+  void _openTypeSelector() {
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (context) => _TypeSelectorSheet(
+        initialType: _type,
+        onSelected: (t) => setState(() => _type = t),
+      ),
+    );
+  }
 
-    // Schedule with prepayments
-    final schedule = MortgageMath.yearlySchedule(
-      principal: finalPrincipal,
-      annualRate: finalAnnualRate,
-      amortizationYears: finalAmortYears,
+  void _saveAndExit() {
+    if (widget.initialScenario == null) {
+      _showNameEntryModal();
+    } else {
+      _performSave(widget.initialScenario!.name, widget.initialScenario!.id);
+    }
+  }
+
+  void _showNameEntryModal() {
+    final controller = TextEditingController();
+    String? error;
+    showDialog(
+      context: context,
+      builder: (context) => StatefulBuilder(
+        builder: (context, setModalState) => AlertDialog(
+          title: Text('Save Scenario', style: serif(20)),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              TextField(
+                controller: controller,
+                decoration: InputDecoration(
+                  hintText: 'e.g. Dream House',
+                  filled: true,
+                  fillColor: kMint,
+                  errorText: error,
+                  border: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: BorderSide.none),
+                ),
+                autofocus: true,
+                onChanged: (_) { if (error != null) setModalState(() => error = null); },
+              ),
+            ],
+          ),
+          actions: [
+            TextButton(onPressed: () => Navigator.pop(context), child: Text('Cancel', style: sans(14, color: Colors.grey))),
+            TextButton(
+              onPressed: () {
+                if (controller.text.trim().isEmpty) {
+                  setModalState(() => error = 'Name is required');
+                  return;
+                }
+                Navigator.pop(context);
+                _performSave(controller.text.trim(), DateTime.now().millisecondsSinceEpoch.toString());
+              },
+              child: Text('Save', style: sans(14, weight: FontWeight.w600, color: kGreen)),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  void _performSave(String name, String id) {
+    final scenario = MortgageScenario(
+      id: id,
+      name: name,
+      calcType: _type.modelType,
+      mortgageAmount: _mortgage,
+      annualRatePct: _rate,
+      amortizationYears: _amortYears,
+      monthlyPayment: _payment,
+      showBalanceAtYear: _showBalanceAtYear,
+      startDate: _startDate,
+      savedAt: DateTime.now(),
       frequency: _frequency,
+      annualLumpSum: _annualLumpSum,
       extraPerPayment: _extraPerPayment,
-      annualLumpSum: _lumpSum,
+      paymentIncreasePct: _paymentIncreasePct,
+      doubleUp: _doubleUp,
     );
 
-    // Baseline schedule (no prepayments) for comparison
-    final scheduleNoPrepay = (_lumpSum > 0 || _extraPerPayment > 0)
-        ? MortgageMath.yearlySchedule(
-            principal: finalPrincipal,
-            annualRate: finalAnnualRate,
-            amortizationYears: finalAmortYears,
-            frequency: _frequency,
-          )
-        : schedule;
-
-    final totalInterest = schedule.fold(0.0, (sum, row) => sum + row.interestPaid);
-    final totalInterestNoPrepay = scheduleNoPrepay.fold(0.0, (sum, row) => sum + row.interestPaid);
-    final totalCost = finalPrincipal + totalInterest;
-
-    final termPayments = _termYears * _frequency.paymentsPerYear;
-    final balanceAtEndOfTerm = MortgageMath.balanceAfter(
-      principal: finalPrincipal,
-      annualRate: finalAnnualRate,
-      amortizationYears: finalAmortYears,
-      paymentsMade: termPayments,
-      frequency: _frequency,
-    );
-
-    double interestDuringTerm = 0;
-    double bal = finalPrincipal;
-    for (int i = 0; i < termPayments && bal > 0.01; i++) {
-      final interest = bal * r;
-      interestDuringTerm += interest;
-      bal = max(0, bal - (finalPayment - interest));
+    if (widget.initialScenario != null) {
+      ScenarioService.instance.updateMortgage(scenario);
+    } else {
+      ScenarioService.instance.addMortgage(scenario);
     }
 
-    return _Result(
-      payment: finalPayment,
-      monthlyPayment: finalMonthlyPayment,
-      effectivePrincipal: finalPrincipal,
-      cmhcPremium: finalCmhc,
-      loanAmount: finalLoanAmount,
-      annualRate: finalAnnualRate,
-      amortYears: finalAmortYears,
-      ltv: _propertyPrice > 0 ? finalLoanAmount / _propertyPrice : 0,
-      firstInterest: firstInterest,
-      firstPrincipal: firstPrincipal,
-      totalInterest: totalInterest,
-      totalCost: totalCost,
-      balanceAtEndOfTerm: balanceAtEndOfTerm,
-      interestDuringTerm: interestDuringTerm,
-      schedule: schedule,
-      scheduleNoPrepay: scheduleNoPrepay,
-      interestSaved: max(0, totalInterestNoPrepay - totalInterest),
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text('Scenario "$name" saved!', style: sans(14, weight: FontWeight.w600, color: Colors.white)),
+        backgroundColor: kGreen,
+        behavior: SnackBarBehavior.floating,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+        margin: const EdgeInsets.all(20),
+      ),
     );
+    Navigator.pop(context);
   }
-
-  // ── Build ────────────────────────────────────────────────────────────────────
 
   @override
   Widget build(BuildContext context) {
-    final result = _compute();
+    final results = _calculate();
 
     return Scaffold(
       backgroundColor: kMint,
       appBar: AppBar(
         backgroundColor: kMint,
         elevation: 0,
+        title: Text('Calculator', style: serif(20)),
+        centerTitle: true,
         leading: IconButton(
-          icon: const Icon(Icons.arrow_back_ios_rounded, size: 20),
+          icon: const Icon(Icons.arrow_back_ios_new_rounded, size: 20),
           onPressed: () => Navigator.pop(context),
         ),
-        title: Text('Mortgage Calculator', style: serif(18)),
-        centerTitle: false,
+        actions: [
+          Padding(
+            padding: const EdgeInsets.only(right: 8),
+            child: TextButton(
+              onPressed: _saveAndExit,
+              child: Text('Save & Exit', style: sans(14, weight: FontWeight.w700, color: kGreen)),
+            ),
+          ),
+        ],
       ),
       body: ListView(
-        padding: const EdgeInsets.fromLTRB(16, 4, 16, 120),
+        padding: const EdgeInsets.fromLTRB(20, 10, 20, 120),
         children: [
-          _buildModeToggle(),
-          const SizedBox(height: 16),
-          _buildInputCard(result),
-          const SizedBox(height: 12),
-          _buildDownPaymentCard(),
-          const SizedBox(height: 12),
-          _buildSettingsCard(),
-          const SizedBox(height: 12),
-          _buildPrepaymentCard(),
+          _buildTypeCard(),
           const SizedBox(height: 20),
-          _buildPrimaryResult(result),
+          _buildFrequencySwitcher(),
           const SizedBox(height: 12),
-          _buildBreakdownCard(result),
+          _buildInputSection(),
           const SizedBox(height: 12),
-          _buildCostSummaryCard(result),
-          const SizedBox(height: 12),
-          _buildAmortizationCard(result),
+          _buildStrategySection(),
+          const SizedBox(height: 24),
+          _buildChartSection(results),
+          const SizedBox(height: 20),
+          _buildInfoSection(results),
         ],
       ),
-      bottomNavigationBar: _buildSaveBar(result),
-    );
-  }
-
-  // ── Mode Toggle ─────────────────────────────────────────────────────────────
-
-  Widget _buildModeToggle() {
-    const modes = [
-      (CalcMode.payment, 'Monthly Payment', Icons.payments_outlined),
-      (CalcMode.amount, 'Mortgage Amount', Icons.account_balance_outlined),
-      (CalcMode.rate, 'Interest Rate', Icons.percent_rounded),
-      (CalcMode.amortization, 'Amortization', Icons.hourglass_bottom_rounded),
-    ];
-
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Text('Calculate my…',
-            style: sans(12, weight: FontWeight.w600, color: Colors.grey[500])
-                .copyWith(letterSpacing: 0.8)),
-        const SizedBox(height: 8),
-        GridView.count(
-          crossAxisCount: 2,
-          shrinkWrap: true,
-          physics: const NeverScrollableScrollPhysics(),
-          crossAxisSpacing: 8,
-          mainAxisSpacing: 8,
-          childAspectRatio: 3.2,
-          children: modes.map((m) {
-            final active = _mode == m.$1;
-            return GestureDetector(
-              onTap: () => setState(() => _mode = m.$1),
-              child: AnimatedContainer(
-                duration: const Duration(milliseconds: 180),
-                padding:
-                    const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-                decoration: BoxDecoration(
-                  color: active ? kGreen : Colors.white,
-                  borderRadius: BorderRadius.circular(12),
-                  boxShadow: [
-                    BoxShadow(
-                      color: Colors.black.withValues(alpha: 0.05),
-                      blurRadius: 6,
-                      offset: const Offset(0, 2),
-                    ),
-                  ],
-                ),
-                child: Row(
-                  children: [
-                    Icon(m.$3,
-                        size: 16,
-                        color: active ? Colors.white : Colors.grey[400]),
-                    const SizedBox(width: 6),
-                    Expanded(
-                      child: Text(
-                        m.$2,
-                        style: sans(12,
-                            weight: FontWeight.w600,
-                            color: active ? Colors.white : Colors.grey[700]),
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-            );
-          }).toList(),
+      bottomNavigationBar: Container(
+        padding: EdgeInsets.fromLTRB(20, 12, 20, 12 + MediaQuery.of(context).padding.bottom),
+        decoration: const BoxDecoration(
+          color: Colors.white,
+          boxShadow: [BoxShadow(color: Color(0x0A000000), blurRadius: 10, offset: Offset(0, -4))],
         ),
-      ],
+        child: _buildResultDisplay(results),
+      ),
     );
   }
 
-  // ── Input Card (3 sliders based on mode) ────────────────────────────────────
+  // ─── Shared UI Helpers ──────────────────────────────────────────────────────
 
-  Widget _buildInputCard(_Result result) {
-    final rate = _annualRate;
-    final stressRate = MortgageMath.stressTestRate(rate);
-    final impliedRate = result.annualRate;
-    final impliedAmort = result.amortYears;
-    final impliedAmount = result.loanAmount;
-
-    return _card(
-      children: [
-        // Mortgage Amount slider (shown for payment, rate, amortization modes)
-        if (_mode != CalcMode.amount) ...[
-          _SliderField(
-            label: 'Mortgage Amount',
-            value: _loanAmount,
-            min: 50000,
-            max: 2000000,
-            step: 5000,
-            prefix: '\$',
-            displayValue: _fmtCurrency(_loanAmount),
-            onChanged: _onLoanAmountChanged,
-            onTyped: (v) => _onLoanAmountChanged(v.clamp(0, 2000000)),
-          ),
-          const SizedBox(height: 16),
-        ],
-
-        // Monthly Payment slider (shown for amount, rate, amortization modes)
-        if (_mode != CalcMode.payment) ...[
-          _SliderField(
-            label: 'Monthly Payment',
-            value: _paymentInput,
-            min: 500,
-            max: 15000,
-            step: 50,
-            prefix: '\$',
-            displayValue: _fmtCurrency(_paymentInput),
-            onChanged: (v) => setState(() => _paymentInput = v),
-            onTyped: (v) => setState(() => _paymentInput = v.clamp(500, 15000)),
-          ),
-          const SizedBox(height: 16),
-        ],
-
-        // Interest Rate slider (shown for all except rate mode)
-        if (_mode != CalcMode.rate) ...[
-          _SliderField(
-            label: 'Interest Rate',
-            value: _ratePct,
-            min: 0.5,
-            max: 12,
-            step: 0.05,
-            suffix: '%',
-            displayValue: '${_ratePct.toStringAsFixed(2)}%',
-            onChanged: (v) => setState(() => _ratePct = v),
-            onTyped: (v) => setState(() => _ratePct = v.clamp(0.5, 12)),
-          ),
-          Row(
-            children: [
-              const Spacer(),
-              Text('Show stress test rate',
-                  style: sans(12, color: Colors.grey[600])),
-              const SizedBox(width: 6),
-              Switch.adaptive(
-                value: _showStressTest,
-                onChanged: (v) => setState(() => _showStressTest = v),
-                activeTrackColor: kAccent,
-                materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
-              ),
-            ],
-          ),
-          if (_showStressTest) ...[
-            const SizedBox(height: 4),
+  Widget _buildTypeCard() {
+    return GestureDetector(
+      onTap: _openTypeSelector,
+      child: Container(
+        padding: const EdgeInsets.all(20),
+        decoration: BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.circular(20),
+          boxShadow: [BoxShadow(color: Colors.black.withValues(alpha: 0.05), blurRadius: 10, offset: const Offset(0, 4))],
+        ),
+        child: Row(
+          children: [
             Container(
-              padding: const EdgeInsets.all(10),
-              decoration: BoxDecoration(
-                color: const Color(0xFFFFF8E1),
-                borderRadius: BorderRadius.circular(10),
-              ),
-              child: Row(
-                children: [
-                  const Icon(Icons.info_outline_rounded,
-                      size: 14, color: Color(0xFFD07A2B)),
-                  const SizedBox(width: 8),
-                  Expanded(
-                    child: RichText(
-                      text: TextSpan(
-                        style: sans(12, color: Colors.grey[700]),
-                        children: [
-                          const TextSpan(text: 'Contract rate: '),
-                          TextSpan(
-                              text: _fmtPctPct(_ratePct),
-                              style: sans(12, weight: FontWeight.w700)),
-                          const TextSpan(text: '   Qualifying rate: '),
-                          TextSpan(
-                              text: _fmtPct(stressRate),
-                              style: sans(12,
-                                  weight: FontWeight.w700,
-                                  color: const Color(0xFFD07A2B))),
-                        ],
-                      ),
-                    ),
-                  ),
-                ],
-              ),
+              width: 48,
+              height: 48,
+              decoration: BoxDecoration(color: kGreen.withValues(alpha: 0.1), borderRadius: BorderRadius.circular(12)),
+              child: const Icon(Icons.swap_vert_rounded, color: kGreen),
             ),
-            const SizedBox(height: 8),
-          ] else
-            const SizedBox(height: 8),
-        ],
-
-        // Amortization slider (shown for all except amortization mode)
-        if (_mode != CalcMode.amortization) ...[
-          _SliderField(
-            label: 'Amortization',
-            value: _amortYears.toDouble(),
-            min: 5,
-            max: 30,
-            step: 1,
-            suffix: ' yrs',
-            displayValue: '$_amortYears yrs',
-            onChanged: (v) => setState(() => _amortYears = v.round()),
-            onTyped: (v) =>
-                setState(() => _amortYears = v.round().clamp(5, 30)),
-          ),
-          if (_amortYears > 25) ...[
-            const SizedBox(height: 8),
-            _infoBanner(
-              '30-year amortization requires ≥ 20% down payment (uninsured mortgage).',
-              const Color(0xFF2B82D0),
-              const Color(0xFFDCEEF9),
-            ),
-          ],
-        ],
-
-        // Shown output for derived modes
-        if (_mode == CalcMode.rate) ...[
-          _outputRow('Implied rate', _fmtPct(impliedRate)),
-          if (_showStressTest)
-            _outputRow('Qualifying rate',
-                _fmtPct(MortgageMath.stressTestRate(impliedRate)),
-                color: const Color(0xFFD07A2B)),
-        ],
-        if (_mode == CalcMode.amortization)
-          _outputRow('Years to pay off', '$impliedAmort yrs'),
-        if (_mode == CalcMode.amount)
-          _outputRow('Max loan amount', _fmtCurrency(impliedAmount)),
-      ],
-    );
-  }
-
-  // ── Down Payment Card ───────────────────────────────────────────────────────
-
-  Widget _buildDownPaymentCard() {
-    final pct = _downPct * 100;
-    final hasCmhc = _ltv > 0.80;
-    final insufficientDown = _ltv > 0.95;
-
-    return _card(
-      children: [
-        Row(
-          children: [
-            Text('Down Payment',
-                style: sans(14, weight: FontWeight.w600)),
-            const Spacer(),
-            GestureDetector(
-              onTap: () => setState(() => _downAsPct = !_downAsPct),
-              child: Container(
-                padding:
-                    const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-                decoration: BoxDecoration(
-                    color: kMint, borderRadius: BorderRadius.circular(20)),
-                child: Text(
-                  _downAsPct ? 'Switch to \$' : 'Switch to %',
-                  style: sans(11,
-                      weight: FontWeight.w600, color: kGreen),
-                ),
-              ),
-            ),
-          ],
-        ),
-        const SizedBox(height: 14),
-        _SliderField(
-          label: 'Property Price',
-          value: _propertyPrice,
-          min: 100000,
-          max: 3000000,
-          step: 5000,
-          prefix: '\$',
-          displayValue: _fmtCurrency(_propertyPrice),
-          onChanged: _onPropertyPriceChanged,
-          onTyped: (v) => _onPropertyPriceChanged(v.clamp(100000, 3000000)),
-        ),
-        const SizedBox(height: 14),
-        if (_downAsPct)
-          _SliderField(
-            label: 'Down Payment',
-            value: pct,
-            min: 0,
-            max: 100,
-            step: 0.5,
-            suffix: '%',
-            displayValue: '${pct.toStringAsFixed(1)}%',
-            onChanged: (v) =>
-                _onDownPaymentChanged(_propertyPrice * v / 100),
-            onTyped: (v) =>
-                _onDownPaymentChanged(_propertyPrice * v.clamp(0, 100) / 100),
-          )
-        else
-          _SliderField(
-            label: 'Down Payment',
-            value: _downPaymentAbs,
-            min: 0,
-            max: _propertyPrice,
-            step: 5000,
-            prefix: '\$',
-            displayValue: _fmtCurrency(_downPaymentAbs),
-            onChanged: _onDownPaymentChanged,
-            onTyped: (v) => _onDownPaymentChanged(v.clamp(0, _propertyPrice)),
-          ),
-        const SizedBox(height: 12),
-        Row(
-          mainAxisAlignment: MainAxisAlignment.spaceBetween,
-          children: [
-            _kvSmall('Down payment', '${pct.toStringAsFixed(1)}%'),
-            _kvSmall('Mortgage amount', _fmtCurrency(_loanAmount)),
-            if (hasCmhc)
-              _kvSmall('CMHC insurance', _fmtCurrency(_cmhcPremium),
-                  color: const Color(0xFFD07A2B)),
-          ],
-        ),
-        if (hasCmhc) ...[
-          const SizedBox(height: 10),
-          _infoBanner(
-            'Mortgage insurance (CMHC) will be added to your loan amount.',
-            const Color(0xFFD07A2B),
-            const Color(0xFFFFF3E0),
-          ),
-        ],
-        if (insufficientDown) ...[
-          const SizedBox(height: 6),
-          _infoBanner(
-            'Minimum down payment is 5% for properties up to \$500,000.',
-            const Color(0xFFD32F2F),
-            const Color(0xFFFFF0F0),
-          ),
-        ],
-      ],
-    );
-  }
-
-  // ── Settings Card ───────────────────────────────────────────────────────────
-
-  Widget _buildSettingsCard() {
-    return _card(
-      children: [
-        Text('Loan Settings', style: sans(14, weight: FontWeight.w600)),
-        const SizedBox(height: 14),
-        _dropdownRow<PaymentFrequency>(
-          label: 'Payment Frequency',
-          value: _frequency,
-          items: PaymentFrequency.values,
-          itemLabel: (f) => f.label,
-          onChanged: (v) => setState(() => _frequency = v),
-        ),
-        const Divider(height: 24, color: Color(0xFFF0F0F0)),
-        _dropdownRow<int>(
-          label: 'Mortgage Term',
-          value: _termYears,
-          items: const [1, 2, 3, 4, 5, 7, 10],
-          itemLabel: (v) => '$v ${v == 1 ? 'year' : 'years'}',
-          onChanged: (v) => setState(() => _termYears = v),
-        ),
-        const Divider(height: 24, color: Color(0xFFF0F0F0)),
-        Row(
-          children: [
-            Text('First Payment Date',
-                style: sans(13, weight: FontWeight.w500)),
-            const Spacer(),
-            GestureDetector(
-              onTap: () async {
-                final picked = await showDatePicker(
-                  context: context,
-                  initialDate: _firstPaymentDate,
-                  firstDate: DateTime.now(),
-                  lastDate: DateTime.now().add(const Duration(days: 365)),
-                );
-                if (picked != null) {
-                  setState(() => _firstPaymentDate = picked);
-                }
-              },
-              child: Container(
-                padding:
-                    const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-                decoration: BoxDecoration(
-                  color: kMint,
-                  borderRadius: BorderRadius.circular(8),
-                ),
-                child: Text(
-                  DateFormat('MMM d, yyyy').format(_firstPaymentDate),
-                  style: sans(13, weight: FontWeight.w600, color: kGreen),
-                ),
-              ),
-            ),
-          ],
-        ),
-      ],
-    );
-  }
-
-  // ── Prepayment Card ─────────────────────────────────────────────────────────
-
-  Widget _buildPrepaymentCard() {
-    return _card(
-      children: [
-        GestureDetector(
-          onTap: () => setState(() => _showPrepayment = !_showPrepayment),
-          child: Row(
-            children: [
-              const Icon(Icons.add_circle_outline_rounded,
-                  size: 18, color: kAccent),
-              const SizedBox(width: 8),
-              Text('Extra Payments',
-                  style: sans(14, weight: FontWeight.w600, color: kAccent)),
-              const Spacer(),
-              Icon(
-                _showPrepayment
-                    ? Icons.keyboard_arrow_up_rounded
-                    : Icons.keyboard_arrow_down_rounded,
-                color: Colors.grey[400],
-              ),
-            ],
-          ),
-        ),
-        if (_showPrepayment) ...[
-          const SizedBox(height: 14),
-          _labeledTextField(
-            label: 'Lump sum per year',
-            value: _lumpSum,
-            prefix: '\$',
-            onChanged: (v) => setState(() => _lumpSum = v),
-          ),
-          const SizedBox(height: 12),
-          _labeledTextField(
-            label: 'Extra amount per payment',
-            value: _extraPerPayment,
-            prefix: '\$',
-            onChanged: (v) => setState(() => _extraPerPayment = v),
-          ),
-          const SizedBox(height: 10),
-          _infoBanner(
-            'Most Canadian lenders allow 10–20% of the original principal as prepayment without penalty.',
-            Colors.grey,
-            const Color(0xFFF5F5F5),
-          ),
-        ],
-      ],
-    );
-  }
-
-  // ── Primary Result ──────────────────────────────────────────────────────────
-
-  Widget _buildPrimaryResult(_Result result) {
-    final String label;
-    final String value;
-    final String sublabel;
-
-    switch (_mode) {
-      case CalcMode.payment:
-        label = 'Estimated ${_frequency.label.toLowerCase()} payment';
-        value = _fmtCurrency(result.payment);
-        sublabel = _frequency == PaymentFrequency.monthly
-            ? ''
-            : 'Monthly equivalent: ${_fmtCurrency(result.monthlyPayment)}';
-      case CalcMode.amount:
-        label = 'Maximum mortgage amount';
-        value = _fmtCurrency(result.loanAmount);
-        sublabel =
-            'Property up to ${_fmtCurrency(result.loanAmount + _downPaymentAbs)}';
-      case CalcMode.rate:
-        label = 'Implied interest rate';
-        value = _fmtPct(result.annualRate);
-        sublabel = _showStressTest
-            ? 'Qualifying rate: ${_fmtPct(MortgageMath.stressTestRate(result.annualRate))}'
-            : '';
-      case CalcMode.amortization:
-        label = "You'll be mortgage-free in";
-        value = '${result.amortYears} years';
-        sublabel = '';
-    }
-
-    final effectiveAmort = result.schedule.isEmpty ? 0 : result.schedule.last.year;
-    final hasPrepay = _lumpSum > 0 || _extraPerPayment > 0;
-
-    return Container(
-      width: double.infinity,
-      padding: const EdgeInsets.all(20),
-      decoration: BoxDecoration(
-        gradient: const LinearGradient(
-          colors: [kGreen, Color(0xFF1E4D38)],
-          begin: Alignment.topLeft,
-          end: Alignment.bottomRight,
-        ),
-        borderRadius: BorderRadius.circular(20),
-        boxShadow: [
-          BoxShadow(
-            color: kGreen.withValues(alpha: 0.35),
-            blurRadius: 16,
-            offset: const Offset(0, 6),
-          ),
-        ],
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text(label, style: sans(13, color: Colors.white.withValues(alpha: 0.7))),
-          const SizedBox(height: 6),
-          Text(value,
-              style: serif(40, color: Colors.white)
-                  .copyWith(letterSpacing: -1, height: 1.1)),
-          if (sublabel.isNotEmpty) ...[
-            const SizedBox(height: 6),
-            Text(sublabel,
-                style: sans(12, color: Colors.white.withValues(alpha: 0.6))),
-          ],
-          if (hasPrepay && effectiveAmort < _amortYears) ...[
-            const SizedBox(height: 10),
-            Container(
-              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
-              decoration: BoxDecoration(
-                color: kAccent.withValues(alpha: 0.25),
-                borderRadius: BorderRadius.circular(20),
-              ),
-              child: Text(
-                'Paid off in $effectiveAmort yrs  ·  Save ${_fmtCurrency(result.interestSaved)} interest',
-                style: sans(11,
-                    weight: FontWeight.w600,
-                    color: Colors.white.withValues(alpha: 0.9)),
-              ),
-            ),
-          ],
-        ],
-      ),
-    );
-  }
-
-  // ── Breakdown Card (donut chart) ────────────────────────────────────────────
-
-  Widget _buildBreakdownCard(_Result result) {
-    final p = result.firstPrincipal.clamp(0.0, double.infinity);
-    final i = result.firstInterest.clamp(0.0, double.infinity);
-    final ins = result.cmhcPremium;
-    final total = p + i + (ins > 0 ? ins / _amortYears / 12 : 0);
-
-    return _card(
-      children: [
-        Text('Payment Breakdown',
-            style: sans(14, weight: FontWeight.w600)),
-        Text('First payment split',
-            style: sans(12, color: Colors.grey[500])),
-        const SizedBox(height: 16),
-        Row(
-          children: [
-            SizedBox(
-              width: 100,
-              height: 100,
-              child: CustomPaint(
-                painter: _DonutPainter(
-                  principal: p,
-                  interest: i,
-                  insurance: ins > 0 ? ins / _amortYears / 12 : 0,
-                ),
-              ),
-            ),
-            const SizedBox(width: 20),
+            const SizedBox(width: 16),
             Expanded(
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  _legendRow(kAccent, 'Principal',
-                      total > 0 ? '${(p / total * 100).toStringAsFixed(1)}%' : '—'),
-                  const SizedBox(height: 8),
-                  _legendRow(const Color(0xFF2B82D0), 'Interest',
-                      total > 0 ? '${(i / total * 100).toStringAsFixed(1)}%' : '—'),
-                  if (ins > 0) ...[
-                    const SizedBox(height: 8),
-                    _legendRow(const Color(0xFFD07A2B), 'CMHC insurance',
-                        '${((ins / _amortYears / 12) / total * 100).toStringAsFixed(1)}%'),
-                  ],
+                  Text('Calculating', style: sans(12, color: Colors.grey[500], weight: FontWeight.w600)),
+                  Text(_type.label, style: serif(18)),
                 ],
               ),
             ),
+            Icon(Icons.keyboard_arrow_down_rounded, color: Colors.grey[400]),
           ],
         ),
-        const Divider(height: 24, color: Color(0xFFF0F0F0)),
-        _kvRow('Payment amount',
-            '${_fmtCurrency(result.payment)}${_frequency.shortLabel}'),
-        _kvRow('Principal (first payment)', _fmtCurrency2(p)),
-        _kvRow('Interest (first payment)', _fmtCurrency2(i)),
-        if (ins > 0)
-          _kvRow('CMHC premium (total)', _fmtCurrency(ins)),
-      ],
+      ),
     );
   }
 
-  // ── Cost Summary Card ───────────────────────────────────────────────────────
-
-  Widget _buildCostSummaryCard(_Result result) {
-    final effectiveAmort =
-        result.schedule.isEmpty ? _amortYears : result.schedule.last.year;
-    final hasPrepay = _lumpSum > 0 || _extraPerPayment > 0;
-
-    return _card(
+  Widget _buildFrequencySwitcher() {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Text('Cost Summary', style: sans(14, weight: FontWeight.w600)),
-        const SizedBox(height: 14),
-        _kvRow('Total cost (full amortization)', _fmtCurrency(result.totalCost)),
-        _kvRow('Total interest paid', _fmtCurrency(result.totalInterest)),
-        _kvRow('Interest during term ($_termYears yrs)',
-            _fmtCurrency(result.interestDuringTerm)),
-        _kvRow('Balance at end of term',
-            _fmtCurrency(result.balanceAtEndOfTerm)),
-        _kvRow('Effective amortization', '$effectiveAmort years'),
-        if (hasPrepay && result.interestSaved > 0)
-          _kvRow('Interest saved from prepayments',
-              _fmtCurrency(result.interestSaved),
-              color: kAccent),
-      ],
-    );
-  }
-
-  // ── Amortization Schedule Card ──────────────────────────────────────────────
-
-  Widget _buildAmortizationCard(_Result result) {
-    final maxBar = result.schedule.isEmpty
-        ? 1.0
-        : result.schedule
-            .map((r) => r.principalPaid + r.interestPaid)
-            .reduce(max);
-
-    return _card(
-      children: [
-        Row(
-          children: [
-            Text('Amortization Schedule',
-                style: sans(14, weight: FontWeight.w600)),
-            const Spacer(),
-            GestureDetector(
-              onTap: () => setState(() => _showMonthly = !_showMonthly),
-              child: Text(
-                _showMonthly ? 'Show yearly' : 'Show monthly',
-                style: sans(12, color: kAccent, weight: FontWeight.w600),
-              ),
-            ),
-          ],
+        Padding(
+          padding: const EdgeInsets.only(left: 4, bottom: 8),
+          child: Text('Payment Frequency', style: sans(12, weight: FontWeight.w600, color: Colors.grey[500])),
         ),
-        const SizedBox(height: 14),
-        // Stacked bar chart (simplified)
         SizedBox(
-          height: 80,
-          child: Row(
-            crossAxisAlignment: CrossAxisAlignment.end,
-            children: result.schedule.take(30).map((row) {
-              final total = row.principalPaid + row.interestPaid;
-              final frac = maxBar > 0 ? total / maxBar : 0.0;
-              final pFrac = total > 0 ? row.principalPaid / total : 0.0;
-              final isMilestone = row.year == _termYears;
-              return Expanded(
-                child: Padding(
-                  padding: const EdgeInsets.symmetric(horizontal: 0.5),
-                  child: Column(
-                    mainAxisAlignment: MainAxisAlignment.end,
-                    children: [
-                      if (isMilestone)
-                        Container(width: 2, height: 4, color: kAccent),
-                      SizedBox(
-                        height: 72 * frac,
-                        child: Column(
-                          children: [
-                            Expanded(
-                              flex: ((1 - pFrac) * 100).round(),
-                              child: Container(
-                                  color: const Color(0xFF2B82D0)
-                                      .withValues(alpha: 0.7)),
-                            ),
-                            Expanded(
-                              flex: (pFrac * 100).round().clamp(1, 100),
-                              child: Container(color: kAccent.withValues(alpha: 0.7)),
-                            ),
-                          ],
-                        ),
-                      ),
-                    ],
+          height: 40,
+          child: ListView.builder(
+            scrollDirection: Axis.horizontal,
+            itemCount: PaymentFrequency.values.length,
+            itemBuilder: (context, index) {
+              final f = PaymentFrequency.values[index];
+              final active = _frequency == f;
+              return GestureDetector(
+                onTap: () => setState(() => _frequency = f),
+                child: AnimatedContainer(
+                  duration: const Duration(milliseconds: 200),
+                  margin: const EdgeInsets.only(right: 10),
+                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+                  decoration: BoxDecoration(
+                    color: active ? kGreen : Colors.white,
+                    borderRadius: BorderRadius.circular(20),
+                    border: Border.all(color: active ? kGreen : Colors.grey[200]!),
+                    boxShadow: active ? [BoxShadow(color: kGreen.withValues(alpha: 0.2), blurRadius: 8, offset: const Offset(0, 4))] : null,
+                  ),
+                  child: Center(
+                    child: Text(
+                      f.label,
+                      style: sans(13, weight: active ? FontWeight.w700 : FontWeight.w500, color: active ? Colors.white : Colors.grey[600]),
+                    ),
                   ),
                 ),
               );
-            }).toList(),
+            },
           ),
         ),
-        Padding(
-          padding: const EdgeInsets.symmetric(vertical: 6),
-          child: Row(
-            children: [
-              _legendDot(kAccent, 'Principal'),
-              const SizedBox(width: 16),
-              _legendDot(const Color(0xFF2B82D0), 'Interest'),
-              const SizedBox(width: 16),
-              _legendDot(kAccent, 'Term end ($_termYears yr)', isLine: true),
-            ],
-          ),
-        ),
-        const Divider(height: 16, color: Color(0xFFF0F0F0)),
-        // Table header
-        Padding(
-          padding: const EdgeInsets.symmetric(vertical: 6),
-          child: Row(
-            children: [
-              SizedBox(width: 40, child: Text('Year', style: sans(11, weight: FontWeight.w600, color: Colors.grey[500]))),
-              Expanded(child: Text('Principal', style: sans(11, weight: FontWeight.w600, color: Colors.grey[500]), textAlign: TextAlign.right)),
-              Expanded(child: Text('Interest', style: sans(11, weight: FontWeight.w600, color: Colors.grey[500]), textAlign: TextAlign.right)),
-              Expanded(child: Text('Balance', style: sans(11, weight: FontWeight.w600, color: Colors.grey[500]), textAlign: TextAlign.right)),
-            ],
-          ),
-        ),
-        ...result.schedule.take(_showMonthly ? 360 : 30).map((row) {
-          final isEven = row.year % 2 == 0;
-          final isTerm = row.year == _termYears;
-          return Container(
-            color: isTerm
-                ? kAccent.withValues(alpha: 0.07)
-                : isEven
-                    ? Colors.grey.withValues(alpha: 0.04)
-                    : Colors.transparent,
-            padding: const EdgeInsets.symmetric(vertical: 5, horizontal: 2),
-            child: Row(
-              children: [
-                SizedBox(
-                  width: 40,
-                  child: Text(
-                    '${row.year}',
-                    style: sans(12,
-                        weight:
-                            isTerm ? FontWeight.w700 : FontWeight.w400,
-                        color: isTerm ? kAccent : null),
-                  ),
-                ),
-                Expanded(
-                    child: Text(_fmtCurrency(row.principalPaid),
-                        style: sans(12), textAlign: TextAlign.right)),
-                Expanded(
-                    child: Text(_fmtCurrency(row.interestPaid),
-                        style: sans(12), textAlign: TextAlign.right)),
-                Expanded(
-                    child: Text(_fmtCurrency(row.balance),
-                        style: sans(12), textAlign: TextAlign.right)),
-              ],
-            ),
-          );
-        }),
       ],
     );
   }
 
-  // ── Save Bar ────────────────────────────────────────────────────────────────
-
-  Widget _buildSaveBar(_Result result) {
+  Widget _buildInputSection() {
     return Container(
-      padding: EdgeInsets.fromLTRB(
-          16, 12, 16, 12 + MediaQuery.of(context).padding.bottom),
-      decoration: const BoxDecoration(
-        color: Colors.white,
-        boxShadow: [
-          BoxShadow(
-              color: Color(0x10000000), blurRadius: 12, offset: Offset(0, -4)),
-        ],
-      ),
-      child: Row(
+      padding: const EdgeInsets.all(20),
+      decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(24)),
+      child: Column(
         children: [
-          Expanded(
-            child: TextField(
-              decoration: InputDecoration(
-                hintText: 'Scenario name…',
-                hintStyle: sans(13, color: Colors.grey[400]),
-                isDense: true,
-                contentPadding: const EdgeInsets.symmetric(
-                    horizontal: 14, vertical: 12),
-                filled: true,
-                fillColor: kMint,
-                border: OutlineInputBorder(
-                  borderRadius: BorderRadius.circular(12),
-                  borderSide: BorderSide.none,
-                ),
-              ),
-              style: sans(13),
-              onChanged: (v) => setState(() {}), // triggers rebuild for button
-              onSubmitted: (_) {},
-            ),
-          ),
-          const SizedBox(width: 10),
-          ElevatedButton.icon(
-            onPressed: () => _saveScenario(result),
-            style: ElevatedButton.styleFrom(
-              backgroundColor: kGreen,
-              foregroundColor: Colors.white,
-              padding:
-                  const EdgeInsets.symmetric(horizontal: 18, vertical: 14),
-              shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(12)),
-              elevation: 0,
-            ),
-            icon: const Icon(Icons.bookmark_add_outlined, size: 18),
-            label: Text('Save', style: sans(13, weight: FontWeight.w600)),
-          ),
+          if (_type == CalcType.payment) ...[
+            _slider('Mortgage Amount', _mortgage, 50000, 2000000, 5000, (v) => setState(() => _mortgage = v)),
+            _slider('Interest Rate', _rate, 0.5, 12, 0.05, (v) => setState(() => _rate = v), isPct: true),
+            _slider('Amortization', _amortYears.toDouble(), 1, 30, 1, (v) => setState(() => _amortYears = v.round()), isYrs: true),
+            _datePicker('First Payment Date', _startDate, (d) => setState(() => _startDate = d)),
+          ],
+          if (_type == CalcType.amount) ...[
+            _slider('Initial Mortgage', _mortgage, 50000, 2000000, 5000, (v) => setState(() => _mortgage = v)),
+            _slider('Interest Rate', _rate, 0.5, 12, 0.05, (v) => setState(() => _rate = v), isPct: true),
+            _slider('Amortization', _amortYears.toDouble(), 1, 30, 1, (v) => setState(() => _amortYears = v.round()), isYrs: true),
+            _slider('Show balance at', _showBalanceAtYear.toDouble(), 1, 30, 1, (v) => setState(() => _showBalanceAtYear = v.round()), isYrs: true),
+            _datePicker('Start Date', _startDate, (d) => setState(() => _startDate = d)),
+          ],
+          if (_type == CalcType.rate) ...[
+            _slider('Mortgage Amount', _mortgage, 50000, 2000000, 5000, (v) => setState(() => _mortgage = v)),
+            _slider('${_frequency.label} Payment', _payment, 100, 15000, 10, (v) => setState(() => _payment = v)),
+            _slider('Amortization', _amortYears.toDouble(), 1, 30, 1, (v) => setState(() => _amortYears = v.round()), isYrs: true),
+            _datePicker('First Payment Date', _startDate, (d) => setState(() => _startDate = d)),
+          ],
+          if (_type == CalcType.amortization) ...[
+            _slider('Mortgage Amount', _mortgage, 50000, 2000000, 5000, (v) => setState(() => _mortgage = v)),
+            _slider('${_frequency.label} Payment', _payment, 100, 15000, 10, (v) => setState(() => _payment = v)),
+            _slider('Interest Rate', _rate, 0.5, 12, 0.05, (v) => setState(() => _rate = v), isPct: true),
+            _datePicker('First Payment Date', _startDate, (d) => setState(() => _startDate = d)),
+          ],
+          if (_type == CalcType.reverse) ...[
+            _slider('Initial Mortgage', _mortgage, 50000, 2000000, 5000, (v) => setState(() => _mortgage = v)),
+            _slider('Interest Rate', _rate, 0.5, 12, 0.05, (v) => setState(() => _rate = v), isPct: true),
+            _slider('Show balance at', _showBalanceAtYear.toDouble(), 1, 50, 1, (v) => setState(() => _showBalanceAtYear = v.round()), isYrs: true),
+            _datePicker('Start Date', _startDate, (d) => setState(() => _startDate = d)),
+          ],
         ],
       ),
     );
   }
 
-  void _saveScenario(_Result result) {
-    final name = 'Scenario ${ScenarioService.instance.scenarios.value.length + 1}';
-    final scenario = MortgageScenario(
-      id: DateTime.now().millisecondsSinceEpoch.toString(),
-      name: name,
-      propertyPrice: _propertyPrice,
-      downPayment: _downPaymentAbs,
-      loanAmount: result.loanAmount,
-      effectivePrincipal: result.effectivePrincipal,
-      cmhcPremium: result.cmhcPremium,
-      annualRatePct: result.annualRate * 100,
-      amortizationYears: result.amortYears,
-      termYears: _termYears,
-      frequency: _frequency,
-      payment: result.payment,
-      monthlyPayment: result.monthlyPayment,
-      savedAt: DateTime.now(),
-    );
-    ScenarioService.instance.add(scenario);
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text('"$name" saved!', style: sans(13, color: Colors.white)),
-        backgroundColor: kGreen,
-        behavior: SnackBarBehavior.floating,
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-      ),
-    );
-  }
-
-  // ── Shared helpers ──────────────────────────────────────────────────────────
-
-  Widget _card({required List<Widget> children}) {
+  Widget _buildStrategySection() {
     return Container(
-      padding: const EdgeInsets.all(18),
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(18),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withValues(alpha: 0.05),
-            blurRadius: 10,
-            offset: const Offset(0, 3),
-          ),
-        ],
-      ),
+      padding: const EdgeInsets.all(20),
+      decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(24)),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
-        children: children,
+        children: [
+          Row(
+            children: [
+              const Icon(Icons.bolt_rounded, color: kAccent, size: 20),
+              const SizedBox(width: 8),
+              Text('Optimize My Mortgage', style: serif(16, color: kAccent)),
+            ],
+          ),
+          const SizedBox(height: 20),
+          _slider('Annual Lump Sum', _annualLumpSum, 0, 50000, 500, (v) => setState(() => _annualLumpSum = v)),
+          _slider('Extra Per Payment', _extraPerPayment, 0, 2000, 10, (v) => setState(() => _extraPerPayment = v)),
+          _slider('Annual Payment Increase', _paymentIncreasePct * 100, 0, 20, 1, (v) => setState(() => _paymentIncreasePct = v / 100), isPct: true),
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              Text('Double-Up Payments', style: sans(13, weight: FontWeight.w600, color: Colors.grey[700])),
+              Switch.adaptive(
+                value: _doubleUp,
+                activeColor: kGreen,
+                onChanged: (v) => setState(() => _doubleUp = v),
+              ),
+            ],
+          ),
+        ],
       ),
     );
   }
 
-  Widget _outputRow(String label, String value, {Color? color}) {
+  // ─── Results Logic ──────────────────────────────────────────────────────────
+
+  _CalcResult _calculate() {
+    double principal = _mortgage;
+    double rate = _rate / 100;
+    int years = _amortYears;
+    
+    // 1. Baseline: same frequency as selected, non-accelerated, no prepayments.
+    //    Accelerated variants compare against their non-accelerated counterpart so
+    //    the savings banner reflects only the benefit of acceleration (and any
+    //    prepayment strategies), not an arbitrary monthly-vs-biweekly timing gap.
+    final baselineFreq = switch (_frequency) {
+      PaymentFrequency.acceleratedBiweekly => PaymentFrequency.biweekly,
+      PaymentFrequency.acceleratedWeekly   => PaymentFrequency.weekly,
+      _                                    => _frequency,
+    };
+    final baselineSchedule = MortgageMath.yearlySchedule(
+        principal: principal, annualRate: rate, amortizationYears: years, frequency: baselineFreq);
+    final baselineInterest = baselineSchedule.fold(0.0, (sum, r) => sum + r.interestPaid);
+
+    // 2. Calculate Active Strategy
+    double primary = 0;
+    final activeSchedule = MortgageMath.yearlySchedule(
+      principal: principal,
+      annualRate: rate,
+      amortizationYears: years,
+      frequency: _frequency,
+      extraPerPayment: _extraPerPayment,
+      annualLumpSum: _annualLumpSum,
+      paymentIncreasePct: _paymentIncreasePct,
+      doubleUp: _doubleUp,
+    );
+
+    switch (_type) {
+      case CalcType.payment:
+        primary = MortgageMath.calcPayment(principal: principal, annualRate: rate, amortizationYears: years, frequency: _frequency);
+      case CalcType.amount:
+        primary = MortgageMath.balanceAfter(principal: principal, annualRate: rate, amortizationYears: years, paymentsMade: _showBalanceAtYear * _frequency.paymentsPerYear, frequency: _frequency);
+      case CalcType.rate:
+        final r = MortgageMath.calcRate(payment: _payment, principal: principal, amortizationYears: years, frequency: _frequency);
+        primary = r * 100;
+      case CalcType.amortization:
+        primary = activeSchedule.isEmpty ? 0 : activeSchedule.last.year.toDouble();
+      case CalcType.reverse:
+        final effectiveMonthlyRate = pow(1 + rate / 2, 2 / 12) - 1;
+        primary = principal * pow(1 + effectiveMonthlyRate, _showBalanceAtYear * 12);
+    }
+
+    final totalInterest = activeSchedule.fold(0.0, (sum, r) => sum + r.interestPaid);
+    final interestSaved = max(0.0, baselineInterest - totalInterest);
+    final yearsSaved = max(0, years - (activeSchedule.isEmpty ? 0 : activeSchedule.last.year));
+
+    return _CalcResult(
+      primaryValue: primary,
+      totalInterest: totalInterest,
+      principal: principal,
+      totalCost: principal + max(0, totalInterest),
+      interestSaved: interestSaved,
+      yearsSaved: yearsSaved,
+    );
+  }
+
+  Widget _buildResultDisplay(_CalcResult res) {
+    String label = '';
+    String value = '';
+    switch (_type) {
+      case CalcType.payment: label = '${_frequency.label} Payment'; value = _fmt.format(res.primaryValue);
+      case CalcType.amount: label = 'Balance in $_showBalanceAtYear Years'; value = _fmt.format(res.primaryValue);
+      case CalcType.rate: label = 'Implied Interest Rate'; value = '${res.primaryValue.toStringAsFixed(2)}%';
+      case CalcType.amortization: label = 'Amortization Period'; value = '${res.primaryValue.toInt()} Years';
+      case CalcType.reverse: label = 'Future Balance'; value = _fmt.format(res.primaryValue);
+    }
+
     return Container(
-      padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 12),
+      width: double.infinity,
+      padding: const EdgeInsets.symmetric(vertical: 16, horizontal: 20),
       decoration: BoxDecoration(
-        color: (color ?? kAccent).withValues(alpha: 0.08),
-        borderRadius: BorderRadius.circular(10),
+        gradient: const LinearGradient(colors: [kGreen, Color(0xFF1E4D38)], begin: Alignment.topLeft, end: Alignment.bottomRight),
+        borderRadius: BorderRadius.circular(20),
+        boxShadow: [BoxShadow(color: kGreen.withValues(alpha: 0.3), blurRadius: 12, offset: const Offset(0, 4))],
       ),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Text(label, style: sans(12, color: Colors.white.withValues(alpha: 0.7), weight: FontWeight.w600)),
+          const SizedBox(height: 4),
+          Text(value, style: serif(32, color: Colors.white)),
+          if (res.interestSaved > 100) ...[
+            const SizedBox(height: 8),
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+              decoration: BoxDecoration(color: kAccent.withValues(alpha: 0.2), borderRadius: BorderRadius.circular(16)),
+              child: Text(
+                'Saving ${_fmt.format(res.interestSaved)} in interest',
+                style: sans(11, weight: FontWeight.w700, color: Colors.white),
+              ),
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+
+  // ─── Chart & Info ───────────────────────────────────────────────────────────
+
+  Widget _buildChartSection(_CalcResult res) {
+    final total = res.totalCost;
+    final pPct = res.principal / total;
+    final iPct = res.totalInterest / total;
+
+    return Container(
+      padding: const EdgeInsets.all(24),
+      decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(24)),
+      child: Column(
+        children: [
+          Text('Cost Breakdown', style: serif(18)),
+          const SizedBox(height: 24),
+          SizedBox(
+            height: 160,
+            width: 160,
+            child: CustomPaint(
+              painter: _PiePainter(principalPct: pPct, interestPct: iPct),
+            ),
+          ),
+          const SizedBox(height: 24),
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceAround,
+            children: [
+              _legend(kAccent, 'Principal', '${(pPct * 100).toStringAsFixed(0)}%'),
+              _legend(const Color(0xFF2B82D0), 'Interest', '${(iPct * 100).toStringAsFixed(0)}%'),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildInfoSection(_CalcResult res) {
+    return Container(
+      padding: const EdgeInsets.all(20),
+      decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(24)),
+      child: Column(
+        children: [
+          _kvRow('Total Principal', _fmt.format(res.principal)),
+          _kvRow('Total Interest', _fmt.format(res.totalInterest)),
+          const Divider(height: 24),
+          _kvRow('Total Cost of Borrowing', _fmt.format(res.totalCost), isBold: true),
+        ],
+      ),
+    );
+  }
+
+  Widget _slider(String label, double value, double min, double max, double step, ValueChanged<double> onChanged, {bool isPct = false, bool isYrs = false}) {
+    String display = isPct ? '${value.toStringAsFixed(2)}%' : isYrs ? '${value.toInt()} yrs' : _fmt.format(value);
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 16),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              Text(label, style: sans(13, weight: FontWeight.w600, color: Colors.grey[700])),
+              Text(display, style: sans(14, weight: FontWeight.w700, color: kGreen)),
+            ],
+          ),
+          SliderTheme(
+            data: SliderThemeData(
+              activeTrackColor: kGreen,
+              inactiveTrackColor: kMint,
+              thumbColor: kGreen,
+              overlayColor: kGreen.withValues(alpha: 0.1),
+              trackHeight: 4,
+            ),
+            child: Slider(
+              value: value.clamp(min, max),
+              min: min,
+              max: max,
+              divisions: max > min ? ((max - min) / step).round() : 1,
+              onChanged: onChanged,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _datePicker(String label, DateTime date, ValueChanged<DateTime> onChanged) {
+    return Row(
+      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+      children: [
+        Text(label, style: sans(13, weight: FontWeight.w600, color: Colors.grey[700])),
+        TextButton(
+          onPressed: () async {
+            final picked = await showDatePicker(context: context, initialDate: date, firstDate: DateTime(2000), lastDate: DateTime(2100));
+            if (picked != null) onChanged(picked);
+          },
+          child: Text(DateFormat('MMM d, yyyy').format(date), style: sans(14, weight: FontWeight.w700, color: kGreen)),
+        ),
+      ],
+    );
+  }
+
+  Widget _kvRow(String label, String value, {bool isBold = false}) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 4),
       child: Row(
         mainAxisAlignment: MainAxisAlignment.spaceBetween,
         children: [
           Text(label, style: sans(13, color: Colors.grey[600])),
-          Text(value,
-              style: sans(14,
-                  weight: FontWeight.w700, color: color ?? kAccent)),
+          Text(value, style: sans(14, weight: isBold ? FontWeight.w800 : FontWeight.w600)),
         ],
       ),
     );
   }
 
-  Widget _kvRow(String label, String value, {Color? color}) {
-    return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 5),
-      child: Row(
-        children: [
-          Expanded(
-              child: Text(label, style: sans(13, color: Colors.grey[600]))),
-          Text(value,
-              style: sans(13,
-                  weight: FontWeight.w600, color: color ?? const Color(0xFF1A1A1A))),
-        ],
-      ),
-    );
-  }
-
-  Widget _kvSmall(String label, String value, {Color? color}) {
+  Widget _legend(Color color, String label, String pct) {
     return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Text(label, style: sans(11, color: Colors.grey[500])),
-        const SizedBox(height: 2),
-        Text(value,
-            style: sans(13,
-                weight: FontWeight.w700,
-                color: color ?? const Color(0xFF1A1A1A))),
-      ],
-    );
-  }
-
-  Widget _legendRow(Color color, String label, String pct) {
-    return Row(
-      children: [
-        Container(
-            width: 10,
-            height: 10,
-            decoration:
-                BoxDecoration(color: color, shape: BoxShape.circle)),
-        const SizedBox(width: 6),
-        Expanded(child: Text(label, style: sans(12, color: Colors.grey[700]))),
-        Text(pct, style: sans(12, weight: FontWeight.w600)),
-      ],
-    );
-  }
-
-  Widget _legendDot(Color color, String label, {bool isLine = false}) {
-    return Row(
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        isLine
-            ? Container(
-                width: 12,
-                height: 2,
-                decoration: BoxDecoration(
-                    color: color,
-                    borderRadius: BorderRadius.circular(1)))
-            : Container(
-                width: 8,
-                height: 8,
-                decoration: BoxDecoration(
-                    color: color, shape: BoxShape.circle)),
-        const SizedBox(width: 4),
-        Text(label, style: sans(10, color: Colors.grey[600])),
-      ],
-    );
-  }
-
-  Widget _infoBanner(String text, Color textColor, Color bgColor) {
-    return Container(
-      padding: const EdgeInsets.all(10),
-      decoration: BoxDecoration(
-          color: bgColor, borderRadius: BorderRadius.circular(10)),
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Icon(Icons.info_outline_rounded, size: 14, color: textColor),
-          const SizedBox(width: 8),
-          Expanded(
-              child: Text(text, style: sans(12, color: textColor))),
-        ],
-      ),
-    );
-  }
-
-  Widget _labeledTextField({
-    required String label,
-    required double value,
-    String prefix = '',
-    required ValueChanged<double> onChanged,
-  }) {
-    return Row(
-      children: [
-        Expanded(child: Text(label, style: sans(13, weight: FontWeight.w500))),
-        SizedBox(
-          width: 110,
-          child: TextField(
-            keyboardType:
-                const TextInputType.numberWithOptions(decimal: true),
-            inputFormatters: [
-              FilteringTextInputFormatter.allow(RegExp(r'[0-9.]'))
-            ],
-            controller: TextEditingController(
-                text: value > 0 ? value.toStringAsFixed(0) : '0'),
-            decoration: InputDecoration(
-              prefixText: prefix,
-              isDense: true,
-              contentPadding:
-                  const EdgeInsets.symmetric(horizontal: 10, vertical: 10),
-              filled: true,
-              fillColor: kMint,
-              border: OutlineInputBorder(
-                borderRadius: BorderRadius.circular(10),
-                borderSide: BorderSide.none,
-              ),
-            ),
-            style: sans(13),
-            onSubmitted: (v) {
-              final parsed = double.tryParse(v);
-              if (parsed != null) onChanged(parsed);
-            },
-          ),
-        ),
-      ],
-    );
-  }
-
-  Widget _dropdownRow<T>({
-    required String label,
-    required T value,
-    required List<T> items,
-    required String Function(T) itemLabel,
-    required ValueChanged<T> onChanged,
-  }) {
-    return Row(
-      children: [
-        Text(label, style: sans(13, weight: FontWeight.w500)),
-        const Spacer(),
-        DropdownButtonHideUnderline(
-          child: DropdownButton<T>(
-            value: value,
-            isDense: true,
-            style: sans(13, weight: FontWeight.w600),
-            items: items
-                .map((i) => DropdownMenuItem<T>(
-                    value: i, child: Text(itemLabel(i))))
-                .toList(),
-            onChanged: (v) {
-              if (v != null) onChanged(v);
-            },
-          ),
-        ),
+        Row(children: [Container(width: 8, height: 8, decoration: BoxDecoration(color: color, shape: BoxShape.circle)), const SizedBox(width: 6), Text(label, style: sans(12, color: Colors.grey))]),
+        Text(pct, style: sans(16, weight: FontWeight.w700)),
       ],
     );
   }
 }
 
-// ─── Donut Chart Painter ──────────────────────────────────────────────────────
+// ─── Logic Classes ────────────────────────────────────────────────────────────
 
-class _DonutPainter extends CustomPainter {
+class _CalcResult {
+  final double primaryValue;
+  final double totalInterest;
   final double principal;
-  final double interest;
-  final double insurance;
-
-  const _DonutPainter({
-    required this.principal,
-    required this.interest,
-    required this.insurance,
-  });
-
-  @override
-  void paint(Canvas canvas, Size size) {
-    final total = principal + interest + insurance;
-    if (total <= 0) return;
-
-    final center = Offset(size.width / 2, size.height / 2);
-    final radius = size.width / 2 - 10;
-
-    void drawArc(double value, Color color, double startAngle) {
-      final sweep = 2 * pi * value / total;
-      canvas.drawArc(
-        Rect.fromCircle(center: center, radius: radius),
-        startAngle,
-        sweep - 0.04,
-        false,
-        Paint()
-          ..color = color
-          ..style = PaintingStyle.stroke
-          ..strokeWidth = 18
-          ..strokeCap = StrokeCap.butt,
-      );
-    }
-
-    double angle = -pi / 2;
-    drawArc(principal, kAccent, angle);
-    angle += 2 * pi * principal / total;
-    drawArc(interest, const Color(0xFF2B82D0), angle);
-    angle += 2 * pi * interest / total;
-    if (insurance > 0) drawArc(insurance, const Color(0xFFD07A2B), angle);
-  }
-
-  @override
-  bool shouldRepaint(covariant _DonutPainter old) =>
-      old.principal != principal ||
-      old.interest != interest ||
-      old.insurance != insurance;
+  final double totalCost;
+  final double interestSaved;
+  final int yearsSaved;
+  _CalcResult({required this.primaryValue, required this.totalInterest, required this.principal, required this.totalCost, required this.interestSaved, required this.yearsSaved});
 }
 
-// ─── Slider + Text Field Widget ───────────────────────────────────────────────
+// ─── Type Selector Sheet ─────────────────────────────────────────────────────
 
-class _SliderField extends StatefulWidget {
-  final String label;
-  final double value;
-  final double min;
-  final double max;
-  final double step;
-  final String prefix;
-  final String suffix;
-  final String displayValue;
-  final ValueChanged<double> onChanged;
-  final ValueChanged<double> onTyped;
+class _TypeSelectorSheet extends StatefulWidget {
+  final CalcType initialType;
+  final ValueChanged<CalcType> onSelected;
 
-  const _SliderField({
-    required this.label,
-    required this.value,
-    required this.min,
-    required this.max,
-    required this.step,
-    this.prefix = '',
-    this.suffix = '',
-    required this.displayValue,
-    required this.onChanged,
-    required this.onTyped,
-  });
+  const _TypeSelectorSheet({required this.initialType, required this.onSelected});
 
   @override
-  State<_SliderField> createState() => _SliderFieldState();
+  State<_TypeSelectorSheet> createState() => _TypeSelectorSheetState();
 }
 
-class _SliderFieldState extends State<_SliderField> {
-  late TextEditingController _controller;
-  late FocusNode _focus;
+class _TypeSelectorSheetState extends State<_TypeSelectorSheet> {
+  late CalcType _tempType;
 
   @override
   void initState() {
     super.initState();
-    _controller = TextEditingController(text: widget.displayValue);
-    _focus = FocusNode();
-    _focus.addListener(() {
-      if (!_focus.hasFocus) _submit();
-    });
-  }
-
-  @override
-  void didUpdateWidget(_SliderField old) {
-    super.didUpdateWidget(old);
-    if (!_focus.hasFocus && old.displayValue != widget.displayValue) {
-      _controller.text = widget.displayValue;
-    }
-  }
-
-  void _submit() {
-    final raw = _controller.text.replaceAll(RegExp(r'[^\d.]'), '');
-    final parsed = double.tryParse(raw);
-    if (parsed != null) widget.onTyped(parsed);
-    _controller.text = widget.displayValue;
-  }
-
-  @override
-  void dispose() {
-    _controller.dispose();
-    _focus.dispose();
-    super.dispose();
+    _tempType = widget.initialType;
   }
 
   @override
   Widget build(BuildContext context) {
-    final divisions = ((widget.max - widget.min) / widget.step).round();
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Row(
+    return DraggableScrollableSheet(
+      initialChildSize: 0.85,
+      minChildSize: 0.5,
+      maxChildSize: 0.95,
+      builder: (_, controller) => Container(
+        decoration: const BoxDecoration(color: Colors.white, borderRadius: BorderRadius.vertical(top: Radius.circular(30))),
+        padding: const EdgeInsets.all(24),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
-            Text(widget.label,
-                style: sans(13, weight: FontWeight.w500)),
-            const Spacer(),
-            SizedBox(
-              width: 110,
-              child: TextField(
-                controller: _controller,
-                focusNode: _focus,
-                keyboardType:
-                    const TextInputType.numberWithOptions(decimal: true),
-                inputFormatters: [
-                  FilteringTextInputFormatter.allow(RegExp(r'[0-9.]'))
-                ],
-                textAlign: TextAlign.right,
-                decoration: InputDecoration(
-                  prefixText: widget.prefix,
-                  suffixText: widget.suffix,
-                  isDense: true,
-                  contentPadding: const EdgeInsets.symmetric(
-                      horizontal: 10, vertical: 8),
-                  filled: true,
-                  fillColor: kMint,
-                  border: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(10),
-                    borderSide: BorderSide.none,
-                  ),
-                ),
-                style: sans(13, weight: FontWeight.w600),
-                onSubmitted: (_) => _submit(),
+            Center(child: Container(width: 40, height: 4, decoration: BoxDecoration(color: Colors.grey[300], borderRadius: BorderRadius.circular(2)))),
+            const SizedBox(height: 24),
+            Text('What would you like to calculate?', style: serif(24)),
+            const SizedBox(height: 24),
+            Expanded(
+              child: ListView(
+                controller: controller,
+                children: CalcType.values.map((t) {
+                  final active = _tempType == t;
+                  return GestureDetector(
+                    onTap: () => setState(() => _tempType = t),
+                    child: Container(
+                      margin: const EdgeInsets.only(bottom: 12),
+                      padding: const EdgeInsets.all(20),
+                      decoration: BoxDecoration(
+                        color: active ? kGreen.withValues(alpha: 0.05) : Colors.white,
+                        border: Border.all(color: active ? kGreen : Colors.grey[200]!, width: active ? 2 : 1),
+                        borderRadius: BorderRadius.circular(16),
+                      ),
+                      child: Row(
+                        children: [
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(t.label, style: sans(16, weight: FontWeight.w700)),
+                                Text(t.description, style: sans(13, color: Colors.grey[500])),
+                              ],
+                            ),
+                          ),
+                          Radio<CalcType>(
+                            value: t,
+                            groupValue: _tempType,
+                            activeColor: kGreen,
+                            onChanged: (v) => setState(() => _tempType = v!),
+                          ),
+                        ],
+                      ),
+                    ),
+                  );
+                }).toList(),
               ),
+            ),
+            ElevatedButton(
+              onPressed: () {
+                widget.onSelected(_tempType);
+                Navigator.pop(context);
+              },
+              style: ElevatedButton.styleFrom(backgroundColor: kGreen, minimumSize: const Size(double.infinity, 56), shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16))),
+              child: Text('Select Calculator', style: sans(16, weight: FontWeight.w700, color: Colors.white)),
             ),
           ],
         ),
-        SliderTheme(
-          data: SliderThemeData(
-            activeTrackColor: kAccent,
-            inactiveTrackColor: kAccent.withValues(alpha: 0.15),
-            thumbColor: kAccent,
-            overlayColor: kAccent.withValues(alpha: 0.15),
-            trackHeight: 3,
-            thumbShape:
-                const RoundSliderThumbShape(enabledThumbRadius: 7),
-          ),
-          child: Slider(
-            value: widget.value.clamp(widget.min, widget.max),
-            min: widget.min,
-            max: widget.max,
-            divisions: divisions,
-            onChanged: widget.onChanged,
-          ),
-        ),
-      ],
+      ),
     );
   }
+}
+
+// ─── Pie Painter ─────────────────────────────────────────────────────────────
+
+class _PiePainter extends CustomPainter {
+  final double principalPct;
+  final double interestPct;
+
+  _PiePainter({required this.principalPct, required this.interestPct});
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final rect = Rect.fromLTWH(0, 0, size.width, size.height);
+    final paint = Paint()..style = PaintingStyle.stroke..strokeWidth = 24..strokeCap = StrokeCap.round;
+
+    double startAngle = -pi / 2;
+    
+    // Principal
+    paint.color = kAccent;
+    canvas.drawArc(rect, startAngle, (2 * pi * principalPct).clamp(0.0, 2 * pi), false, paint);
+    
+    // Interest
+    startAngle += 2 * pi * principalPct;
+    paint.color = const Color(0xFF2B82D0);
+    canvas.drawArc(rect, startAngle, (2 * pi * interestPct).clamp(0.0, 2 * pi), false, paint);
+  }
+
+  @override
+  bool shouldRepaint(covariant CustomPainter oldDelegate) => true;
 }

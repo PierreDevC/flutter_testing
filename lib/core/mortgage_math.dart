@@ -239,38 +239,59 @@ class MortgageMath {
     PaymentFrequency frequency = PaymentFrequency.monthly,
     double extraPerPayment = 0,
     double annualLumpSum = 0,
+    double paymentIncreasePct = 0, // 0.15 for 15%
+    bool doubleUp = false,
   }) {
     if (principal <= 0 || amortizationYears <= 0) return [];
     final r = periodicRate(annualRate, frequency);
-    final basePmt = calcPayment(
+    final initialBasePmt = calcPayment(
       principal: principal,
       annualRate: annualRate,
       amortizationYears: amortizationYears,
       frequency: frequency,
     );
-    final pmt = basePmt + extraPerPayment;
     final paymentsPerYear = frequency.paymentsPerYear;
 
     double balance = principal;
     final rows = <YearlyRow>[];
+    double currentBasePmt = initialBasePmt;
 
-    for (int year = 1; year <= amortizationYears + 10 && balance > 0.01; year++) {
+    for (int year = 1; year <= amortizationYears + 30 && balance > 0.01; year++) {
       double yearPrincipal = 0, yearInterest = 0;
+      
+      // Calculate current periodic payment for this year
+      // Increase payment annually if specified
+      if (year > 1) {
+        currentBasePmt *= (1 + paymentIncreasePct);
+      }
+
+      final pmt = currentBasePmt + extraPerPayment + (doubleUp ? currentBasePmt : 0);
+
       for (int p = 0; p < paymentsPerYear && balance > 0.01; p++) {
         final interest = balance * r;
         final prin = min(pmt - interest, balance);
-        if (prin < 0) break;
-        yearInterest += interest;
-        yearPrincipal += prin;
-        balance -= prin;
+        if (prin < 0) {
+          // Interest exceeds payment, which shouldn't happen with standard amort
+          // but could with extra small payments. In that case, add interest to balance.
+          balance += (interest - pmt);
+          yearInterest += interest;
+          yearPrincipal -= (interest - pmt); // Negative principal
+        } else {
+          yearInterest += interest;
+          yearPrincipal += prin;
+          balance -= prin;
+        }
         if (balance < 0.01) balance = 0;
       }
+      
+      // Annual Lump Sum at end of year
       if (annualLumpSum > 0 && balance > 0) {
         final extra = min(annualLumpSum, balance);
         yearPrincipal += extra;
         balance -= extra;
         if (balance < 0.01) balance = 0;
       }
+
       rows.add(YearlyRow(
         year: year,
         principalPaid: yearPrincipal,
