@@ -31,37 +31,39 @@ class ScenarioListPage extends StatelessWidget {
           onPressed: () => Navigator.pop(context),
         ),
       ),
-      body: ValueListenableBuilder<String?>(
-        valueListenable: service.pinnedScenarioId,
-        builder: (context, pinnedId, _) {
-          return ValueListenableBuilder<List<dynamic>>(
-            valueListenable: notifier,
-            builder: (context, scenarios, _) {
-              if (scenarios.isEmpty) {
-                return _buildEmptyState(context);
-              }
-              return ListView.separated(
-                padding: const EdgeInsets.fromLTRB(20, 10, 20, 100),
-                itemCount: scenarios.length,
-                separatorBuilder: (_, __) => const SizedBox(height: 12),
-                itemBuilder: (context, index) {
-                  final s = scenarios[index];
-                  final isPinned = pinnedId == s.id;
-                  return _ScenarioCard(
-                    name: s.name,
-                    date: s.savedAt,
-                    isPinned: isPinned,
-                    onTap: () => _openScenario(context, s),
-                    onPin: () => service.togglePin(s.id, type == ScenarioToolType.mortgage ? ScenarioType.mortgage : ScenarioType.prequal),
-                    onEdit: () => _editScenario(context, s),
-                    onRename: () => _renameScenario(context, s.id, s.name),
-                    onDelete: () => _deleteScenario(context, s.id),
-                  );
-                },
-              );
-            },
-          );
-        }
+      body: ResponsiveMaxWidth(
+        child: ValueListenableBuilder<String?>(
+          valueListenable: service.pinnedScenarioId,
+          builder: (context, pinnedId, _) {
+            return ValueListenableBuilder<List<dynamic>>(
+              valueListenable: notifier,
+              builder: (context, scenarios, _) {
+                if (scenarios.isEmpty) {
+                  return _buildEmptyState(context);
+                }
+                return ListView.separated(
+                  padding: const EdgeInsets.fromLTRB(20, 10, 20, 100),
+                  itemCount: scenarios.length,
+                  separatorBuilder: (_, __) => const SizedBox(height: 12),
+                  itemBuilder: (context, index) {
+                    final s = scenarios[index];
+                    final isPinned = pinnedId == s.id;
+                    return _ScenarioCard(
+                      name: s.name,
+                      date: s.savedAt,
+                      isPinned: isPinned,
+                      onTap: () => _openScenario(context, s),
+                      onPin: () => service.togglePin(s.id, type == ScenarioToolType.mortgage ? ScenarioType.mortgage : ScenarioType.prequal),
+                      onEdit: () => _editScenario(context, s),
+                      onRename: () => _renameScenario(context, s.id, s.name),
+                      onDelete: () => _deleteScenario(context, s.id),
+                    );
+                  },
+                );
+              },
+            );
+          }
+        ),
       ),
       floatingActionButton: FloatingActionButton.extended(
         onPressed: () => _createNew(context),

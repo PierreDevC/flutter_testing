@@ -171,24 +171,26 @@ class _PrequalificationPageState extends State<PrequalificationPage> {
             ),
         ],
       ),
-      body: PageView(
-        controller: _pageController,
-        physics: const NeverScrollableScrollPhysics(),
-        onPageChanged: (i) => setState(() => _currentPage = i),
-        children: [
-          _buildStep1(),
-          _buildStep2(),
-          _buildStep3(),
-          _buildStep4(),
-          _buildStep5(),
-          _buildStep6(),
-          _buildStep7(),
-          _buildStep8(),
-          _buildStep9(),
-          _buildStep10(),
-          _buildStep11(),
-          _buildStep12(),
-        ],
+      body: ResponsiveMaxWidth(
+        child: PageView(
+          controller: _pageController,
+          physics: const NeverScrollableScrollPhysics(),
+          onPageChanged: (i) => setState(() => _currentPage = i),
+          children: [
+            _buildStep1(),
+            _buildStep2(),
+            _buildStep3(),
+            _buildStep4(),
+            _buildStep5(),
+            _buildStep6(),
+            _buildStep7(),
+            _buildStep8(),
+            _buildStep9(),
+            _buildStep10(),
+            _buildStep11(),
+            _buildStep12(),
+          ],
+        ),
       ),
     );
   }
@@ -918,143 +920,147 @@ class _PrequalificationResultsState extends State<PrequalificationResults> {
           const SizedBox(width: 8),
         ],
       ),
-      body: ListView(
-        padding: const EdgeInsets.fromLTRB(20, 10, 20, 100),
-        children: [
-          // ── Down-payment warning ──────────────────────────────────────
-          if (downShortfall > 0) ...[
-            Container(
-              padding: const EdgeInsets.all(16),
-              decoration: BoxDecoration(
-                color: Colors.orange.shade50,
-                borderRadius: BorderRadius.circular(16),
-                border: Border.all(color: Colors.orange.shade300),
-              ),
-              child: Row(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Icon(Icons.warning_amber_rounded, color: Colors.orange.shade700, size: 20),
-                  const SizedBox(width: 10),
-                  Expanded(
-                    child: Text(
-                      'Your down payment of ${fmt.format(_downPayment)} is below the minimum required (${fmt.format(minDown)}) for this purchase price. '
-                      'Increase your down payment by at least ${fmt.format(downShortfall)} to qualify.',
-                      style: sans(12, color: Colors.orange.shade800, height: 1.4),
-                    ),
-                  ),
-                ],
-              ),
-            ),
-            const SizedBox(height: 12),
-          ],
-          _resultCard(
-            title: 'Your estimated purchase price',
-            value: fmt.format(purchasePrice),
-            color: kGreen,
-            child: Column(
-              children: [
-                const SizedBox(height: 16),
-                Row(
+      body: ResponsiveMaxWidth(
+        child: ListView(
+          padding: const EdgeInsets.fromLTRB(20, 10, 20, 100),
+          children: [
+            // ── Down-payment warning ──────────────────────────────────────
+            if (downShortfall > 0) ...[
+              Container(
+                padding: const EdgeInsets.all(16),
+                decoration: BoxDecoration(
+                  color: Colors.orange.shade50,
+                  borderRadius: BorderRadius.circular(16),
+                  border: Border.all(color: Colors.orange.shade300),
+                ),
+                child: Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
+                    Icon(Icons.warning_amber_rounded, color: Colors.orange.shade700, size: 20),
+                    const SizedBox(width: 10),
                     Expanded(
                       child: Text(
-                        'Based on your income and debts, this is the maximum home price you may qualify for.',
-                        style: sans(13, color: Colors.grey[600], height: 1.4),
-                      ),
-                    ),
-                    const SizedBox(width: 16),
-                    ClipRRect(
-                      borderRadius: BorderRadius.circular(14),
-                      child: Image.asset(
-                        'assets/images/3dhome.jpg',
-                        width: 100,
-                        height: 80,
-                        fit: BoxFit.cover,
+                        'Your down payment of ${fmt.format(_downPayment)} is below the minimum required (${fmt.format(minDown)}) for this purchase price. '
+                        'Increase your down payment by at least ${fmt.format(downShortfall)} to qualify.',
+                        style: sans(12, color: Colors.orange.shade800, height: 1.4),
                       ),
                     ),
                   ],
                 ),
-                const SizedBox(height: 20),
-                ElevatedButton(
-                  onPressed: () => _showContactAdvisor(purchasePrice),
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: kGreen,
-                    foregroundColor: Colors.white,
-                    minimumSize: const Size(double.infinity, 54),
-                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(15)),
-                    elevation: 0,
+              ),
+              const SizedBox(height: 12),
+            ],
+            _resultCard(
+              title: 'Your estimated purchase price',
+              value: fmt.format(purchasePrice),
+              color: kGreen,
+              child: Column(
+                children: [
+                  const SizedBox(height: 16),
+                  Row(
+                    children: [
+                      Expanded(
+                        child: Text(
+                          'Based on your income and debts, this is the maximum home price you may qualify for.',
+                          style: sans(13, color: Colors.grey[600], height: 1.4),
+                        ),
+                      ),
+                      const SizedBox(width: 16),
+                      ClipRRect(
+                        borderRadius: BorderRadius.circular(14),
+                        child: Image.asset(
+                          'assets/images/3dhome.jpg',
+                          width: 100,
+                          height: 80,
+                          fit: BoxFit.cover,
+                        ),
+                      ),
+                    ],
                   ),
-                  child: Text('Get Pre-approved', style: sans(15, weight: FontWeight.w700)),
-                ),
-              ],
+                  const SizedBox(height: 20),
+                  ElevatedButton(
+                    onPressed: () => _showContactAdvisor(purchasePrice),
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: kGreen,
+                      foregroundColor: Colors.white,
+                      minimumSize: const Size(double.infinity, 54),
+                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(15)),
+                      elevation: 0,
+                    ),
+                    child: Text('Get Pre-approved', style: sans(15, weight: FontWeight.w700)),
+                  ),
+                ],
+              ),
             ),
-          ),
-          const SizedBox(height: 16),
-          _resultCard(
-            title: 'Monthly cost breakdown',
-            value: fmt.format(totalMonthlyOutflow),
-            child: Column(
-              children: [
-                _kv('Mortgage payment', fmt.format(actualMortgagePayment)),
-                _kv('Property tax (est.)', fmt.format(propertyTax)),
-                _kv('Heating (est.)', fmt.format(_heating)),
-                if (widget.isCondo && _monthlyCondoFee > 0)
-                  _kv('Condo fees', fmt.format(_monthlyCondoFee)),
-                const Divider(height: 24),
-                _editButton('Edit expenses', _editExpenses),
-              ],
+            const SizedBox(height: 16),
+            _resultCard(
+              title: 'Monthly cost breakdown',
+              value: fmt.format(totalMonthlyOutflow),
+              child: Column(
+                children: [
+                  _kv('Mortgage payment', fmt.format(actualMortgagePayment)),
+                  _kv('Property tax (est.)', fmt.format(propertyTax)),
+                  _kv('Heating (est.)', fmt.format(_heating)),
+                  if (widget.isCondo && _monthlyCondoFee > 0)
+                    _kv('Condo fees', fmt.format(_monthlyCondoFee)),
+                  const Divider(height: 24),
+                  _editButton('Edit expenses', _editExpenses),
+                ],
+              ),
             ),
-          ),
-          const SizedBox(height: 16),
-          _resultCard(
-            title: 'Home price breakdown',
-            value: fmt.format(purchasePrice),
-            child: Column(
-              children: [
-                _kv('Down payment', fmt.format(_downPayment)),
-                _kv('Mortgage insurance', isInsurable ? fmt.format(cmhc) : 'N/A (≥\$1M)'),
-                _kv('Net mortgage amount', fmt.format(maxPrincipal)),
-                _kv('Est. closing costs (1.5%)', fmt.format(purchasePrice * 0.015)),
-                const Divider(height: 24),
-                _editButton('Edit down payment', _editDownPayment),
-              ],
+            const SizedBox(height: 16),
+            _resultCard(
+              title: 'Home price breakdown',
+              value: fmt.format(purchasePrice),
+              child: Column(
+                children: [
+                  _kv('Down payment', fmt.format(_downPayment)),
+                  _kv('Mortgage insurance', isInsurable ? fmt.format(cmhc) : 'N/A (≥\$1M)'),
+                  _kv('Net mortgage amount', fmt.format(maxPrincipal)),
+                  _kv('Est. closing costs (1.5%)', fmt.format(purchasePrice * 0.015)),
+                  const Divider(height: 24),
+                  _editButton('Edit down payment', _editDownPayment),
+                ],
+              ),
             ),
-          ),
-          const SizedBox(height: 16),
-          _resultCard(
-            title: 'Mortgage Details',
-            value: '${(contractRate * 100).toStringAsFixed(2)}%',
-            child: Column(
-              children: [
-                _kv('Total amount', fmt.format(totalMortgage)),
-                _kv('Amortization', '$_amortization years'),
-                _kv('Stress test rate', '${(_stressRate * 100).toStringAsFixed(2)}%'),
-                _kv('Insurable?', isInsurable ? 'Yes' : 'No (≥\$1M)'),
-                _kv('Loan to value', '${(maxPrincipal / purchasePrice * 100).toStringAsFixed(1)}%'),
-                _kv('GDS limit / TDS limit', '${(_gdsLimit * 100).toStringAsFixed(1)}% / ${(_tdsLimit * 100).toStringAsFixed(1)}%'),
-                const Divider(height: 24),
-                _editButton('Edit qualification', _editQualification),
-              ],
+            const SizedBox(height: 16),
+            _resultCard(
+              title: 'Mortgage Details',
+              value: '${(contractRate * 100).toStringAsFixed(2)}%',
+              child: Column(
+                children: [
+                  _kv('Total amount', fmt.format(totalMortgage)),
+                  _kv('Amortization', '$_amortization years'),
+                  _kv('Stress test rate', '${(_stressRate * 100).toStringAsFixed(2)}%'),
+                  _kv('Insurable?', isInsurable ? 'Yes' : 'No (≥\$1M)'),
+                  _kv('Loan to value', '${(maxPrincipal / purchasePrice * 100).toStringAsFixed(1)}%'),
+                  _kv('GDS limit / TDS limit', '${(_gdsLimit * 100).toStringAsFixed(1)}% / ${(_tdsLimit * 100).toStringAsFixed(1)}%'),
+                  const Divider(height: 24),
+                  _editButton('Edit qualification', _editQualification),
+                ],
+              ),
             ),
-          ),
-        ],
-      ),
-      bottomNavigationBar: Container(
-        padding: EdgeInsets.fromLTRB(20, 12, 20, 12 + MediaQuery.of(context).padding.bottom),
-        decoration: const BoxDecoration(
-          color: Colors.white,
-          boxShadow: [BoxShadow(color: Color(0x0A000000), blurRadius: 10, offset: Offset(0, -4))],
+          ],
         ),
-        child: ElevatedButton(
-          onPressed: _saveAndExit,
-          style: ElevatedButton.styleFrom(
-            backgroundColor: kGreen,
-            foregroundColor: Colors.white,
-            minimumSize: const Size(double.infinity, 54),
-            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(15)),
-            elevation: 0,
+      ),
+      bottomNavigationBar: ResponsiveMaxWidth(
+        child: Container(
+          padding: EdgeInsets.fromLTRB(20, 12, 20, 12 + MediaQuery.of(context).padding.bottom),
+          decoration: const BoxDecoration(
+            color: Colors.white,
+            boxShadow: [BoxShadow(color: Color(0x0A000000), blurRadius: 10, offset: Offset(0, -4))],
           ),
-          child: Text('Save and Exit', style: sans(16, weight: FontWeight.w700)),
+          child: ElevatedButton(
+            onPressed: _saveAndExit,
+            style: ElevatedButton.styleFrom(
+              backgroundColor: kGreen,
+              foregroundColor: Colors.white,
+              minimumSize: const Size(double.infinity, 54),
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(15)),
+              elevation: 0,
+            ),
+            child: Text('Save and Exit', style: sans(16, weight: FontWeight.w700)),
+          ),
         ),
       ),
     );

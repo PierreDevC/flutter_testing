@@ -28,3 +28,21 @@ TextStyle sans(
 }) =>
     GoogleFonts.dmSans(
         fontSize: size, fontWeight: weight, color: color, height: height);
+
+// ─── Responsive Utilities ─────────────────────────────────────────────────────
+
+class ResponsiveMaxWidth extends StatelessWidget {
+  final Widget child;
+  const ResponsiveMaxWidth({super.key, required this.child});
+
+  @override
+  Widget build(BuildContext context) {
+    return Center(
+      child: ConstrainedBox(
+        constraints: const BoxConstraints(maxWidth: 800),
+        child: child,
+      ),
+    );
+  }
+}
+

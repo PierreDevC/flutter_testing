@@ -230,29 +230,33 @@ class _MortgageCalculatorPageState extends State<MortgageCalculatorPage> {
           ),
         ],
       ),
-      body: ListView(
-        padding: const EdgeInsets.fromLTRB(20, 10, 20, 120),
-        children: [
-          _buildTypeCard(),
-          const SizedBox(height: 20),
-          _buildFrequencySwitcher(),
-          const SizedBox(height: 12),
-          _buildInputSection(),
-          const SizedBox(height: 12),
-          _buildStrategySection(),
-          const SizedBox(height: 24),
-          _buildChartSection(results),
-          const SizedBox(height: 20),
-          _buildInfoSection(results),
-        ],
-      ),
-      bottomNavigationBar: Container(
-        padding: EdgeInsets.fromLTRB(20, 12, 20, 12 + MediaQuery.of(context).padding.bottom),
-        decoration: const BoxDecoration(
-          color: Colors.white,
-          boxShadow: [BoxShadow(color: Color(0x0A000000), blurRadius: 10, offset: Offset(0, -4))],
+      body: ResponsiveMaxWidth(
+        child: ListView(
+          padding: const EdgeInsets.fromLTRB(20, 10, 20, 120),
+          children: [
+            _buildTypeCard(),
+            const SizedBox(height: 20),
+            _buildFrequencySwitcher(),
+            const SizedBox(height: 12),
+            _buildInputSection(),
+            const SizedBox(height: 12),
+            _buildStrategySection(),
+            const SizedBox(height: 24),
+            _buildChartSection(results),
+            const SizedBox(height: 20),
+            _buildInfoSection(results),
+          ],
         ),
-        child: _buildResultDisplay(results),
+      ),
+      bottomNavigationBar: ResponsiveMaxWidth(
+        child: Container(
+          padding: EdgeInsets.fromLTRB(20, 12, 20, 12 + MediaQuery.of(context).padding.bottom),
+          decoration: const BoxDecoration(
+            color: Colors.white,
+            boxShadow: [BoxShadow(color: Color(0x0A000000), blurRadius: 10, offset: Offset(0, -4))],
+          ),
+          child: _buildResultDisplay(results),
+        ),
       ),
     );
   }
