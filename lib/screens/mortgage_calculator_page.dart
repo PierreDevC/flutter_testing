@@ -248,14 +248,16 @@ class _MortgageCalculatorPageState extends State<MortgageCalculatorPage> {
           ],
         ),
       ),
-      bottomNavigationBar: ResponsiveMaxWidth(
-        child: Container(
-          padding: EdgeInsets.fromLTRB(20, 12, 20, 12 + MediaQuery.of(context).padding.bottom),
-          decoration: const BoxDecoration(
-            color: Colors.white,
-            boxShadow: [BoxShadow(color: Color(0x0A000000), blurRadius: 10, offset: Offset(0, -4))],
+      bottomNavigationBar: Container(
+        decoration: const BoxDecoration(
+          color: Colors.white,
+          boxShadow: [BoxShadow(color: Color(0x0A000000), blurRadius: 10, offset: Offset(0, -4))],
+        ),
+        child: ResponsiveMaxWidth(
+          child: Padding(
+            padding: EdgeInsets.fromLTRB(20, 12, 20, 12 + MediaQuery.of(context).padding.bottom),
+            child: _buildResultDisplay(results),
           ),
-          child: _buildResultDisplay(results),
         ),
       ),
     );

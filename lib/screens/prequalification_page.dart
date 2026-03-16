@@ -1043,23 +1043,25 @@ class _PrequalificationResultsState extends State<PrequalificationResults> {
           ],
         ),
       ),
-      bottomNavigationBar: ResponsiveMaxWidth(
-        child: Container(
-          padding: EdgeInsets.fromLTRB(20, 12, 20, 12 + MediaQuery.of(context).padding.bottom),
-          decoration: const BoxDecoration(
-            color: Colors.white,
-            boxShadow: [BoxShadow(color: Color(0x0A000000), blurRadius: 10, offset: Offset(0, -4))],
-          ),
-          child: ElevatedButton(
-            onPressed: _saveAndExit,
-            style: ElevatedButton.styleFrom(
-              backgroundColor: kGreen,
-              foregroundColor: Colors.white,
-              minimumSize: const Size(double.infinity, 54),
-              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(15)),
-              elevation: 0,
+      bottomNavigationBar: Container(
+        decoration: const BoxDecoration(
+          color: Colors.white,
+          boxShadow: [BoxShadow(color: Color(0x0A000000), blurRadius: 10, offset: Offset(0, -4))],
+        ),
+        child: ResponsiveMaxWidth(
+          child: Padding(
+            padding: EdgeInsets.fromLTRB(20, 12, 20, 12 + MediaQuery.of(context).padding.bottom),
+            child: ElevatedButton(
+              onPressed: _saveAndExit,
+              style: ElevatedButton.styleFrom(
+                backgroundColor: kGreen,
+                foregroundColor: Colors.white,
+                minimumSize: const Size(double.infinity, 54),
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(15)),
+                elevation: 0,
+              ),
+              child: Text('Save and Exit', style: sans(16, weight: FontWeight.w700)),
             ),
-            child: Text('Save and Exit', style: sans(16, weight: FontWeight.w700)),
           ),
         ),
       ),
