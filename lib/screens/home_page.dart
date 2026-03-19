@@ -429,13 +429,7 @@ class HomePage extends StatelessWidget {
           ],
         ),
         const SizedBox(height: 16),
-        GridView.count(
-          crossAxisCount: isWide ? 1 : 2,
-          shrinkWrap: true,
-          physics: const NeverScrollableScrollPhysics(),
-          crossAxisSpacing: 16,
-          mainAxisSpacing: 16,
-          childAspectRatio: isWide ? 2.5 : 1.05,
+        Column(
           children: [
             _toolCard(
               icon: Icons.how_to_reg_outlined,
@@ -445,6 +439,7 @@ class HomePage extends StatelessWidget {
               bgColor: const Color(0xFFDCF5DC),
               onTap: () => context.push('/tools/prequal'),
             ),
+            const SizedBox(height: 16),
             _toolCard(
               icon: Icons.calculate_outlined,
               label: 'Mortgage Calc',
@@ -508,7 +503,7 @@ class HomePage extends StatelessWidget {
                         size: 16, color: Colors.grey[400]),
                 ],
               ),
-              const Spacer(),
+              const SizedBox(height: 16),
               Text(label, style: serif(16, weight: FontWeight.w600).copyWith(height: 1.2)),
               const SizedBox(height: 4),
               Text(description, style: sans(12, color: Colors.grey[500])),
