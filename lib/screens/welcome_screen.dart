@@ -1,20 +1,12 @@
 import 'package:flutter/material.dart';
+import 'package:go_router/go_router.dart';
 import '../core/theme.dart';
-import '../main.dart';
 
 class WelcomeScreen extends StatelessWidget {
   const WelcomeScreen({super.key});
 
   void _goToApp(BuildContext context) {
-    Navigator.pushReplacement(
-      context,
-      PageRouteBuilder(
-        pageBuilder: (_, _, _) => const MainScaffold(),
-        transitionsBuilder: (_, animation, _, child) =>
-            FadeTransition(opacity: animation, child: child),
-        transitionDuration: const Duration(milliseconds: 450),
-      ),
-    );
+    context.go('/home');
   }
 
   @override
@@ -26,23 +18,28 @@ class WelcomeScreen extends StatelessWidget {
           Positioned(top: -90, right: -70, child: _decorCircle(280, 0.07)),
           Positioned(top: 60, right: -20, child: _decorCircle(120, 0.05)),
           Positioned(bottom: 140, left: -90, child: _decorCircle(200, 0.06)),
-          SafeArea(
-            child: Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 28),
-              child: LayoutBuilder(
-                builder: (context, constraints) => SingleChildScrollView(
-                  child: ConstrainedBox(
-                    constraints: BoxConstraints(minHeight: constraints.maxHeight),
-                    child: IntrinsicHeight(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.stretch,
-                        children: [
-                          const SizedBox(height: 64),
-                          _buildBranding(),
-                          const Spacer(),
-                          _buildAuthButtons(context),
-                          const SizedBox(height: 44),
-                        ],
+          Center(
+            child: ConstrainedBox(
+              constraints: const BoxConstraints(maxWidth: 500),
+              child: SafeArea(
+                child: Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 28),
+                  child: LayoutBuilder(
+                    builder: (context, constraints) => SingleChildScrollView(
+                      child: ConstrainedBox(
+                        constraints: BoxConstraints(minHeight: constraints.maxHeight),
+                        child: IntrinsicHeight(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.stretch,
+                            children: [
+                              const SizedBox(height: 64),
+                              _buildBranding(),
+                              const Spacer(),
+                              _buildAuthButtons(context),
+                              const SizedBox(height: 44),
+                            ],
+                          ),
+                        ),
                       ),
                     ),
                   ),
@@ -60,7 +57,7 @@ class WelcomeScreen extends StatelessWidget {
         height: size,
         decoration: BoxDecoration(
           shape: BoxShape.circle,
-          color: Colors.white.withValues(alpha: opacity),
+          color: Colors.white.withOpacity(opacity),
         ),
       );
 
@@ -72,7 +69,7 @@ class WelcomeScreen extends StatelessWidget {
           width: 60,
           height: 60,
           decoration: BoxDecoration(
-            color: kBeige.withValues(alpha: 0.15),
+            color: kBeige.withOpacity(0.15),
             borderRadius: BorderRadius.circular(18),
           ),
           child: const Icon(Icons.home_work_outlined, color: kBeige, size: 28),
@@ -82,7 +79,7 @@ class WelcomeScreen extends StatelessWidget {
         const SizedBox(height: 12),
         Text(
           'Mortgage planning,\nsimplified.',
-          style: sans(17, color: Colors.white.withValues(alpha: 0.60), height: 1.55),
+          style: sans(17, color: Colors.white.withOpacity(0.60), height: 1.55),
         ),
       ],
     );
@@ -119,15 +116,7 @@ class WelcomeScreen extends StatelessWidget {
           child: Row(
             mainAxisAlignment: MainAxisAlignment.center,
             children: [
-              Container(
-                width: 22,
-                height: 22,
-                decoration: const BoxDecoration(
-                    shape: BoxShape.circle, color: Colors.black87),
-                child: Center(
-                  child: Text('', style: sans(13, color: Colors.white)),
-                ),
-              ),
+              const Icon(Icons.apple_rounded, size: 24, color: kWelcomeBg),
               const SizedBox(width: 12),
               Text('Continue with Apple',
                   style: sans(15, weight: FontWeight.w600, color: kWelcomeBg)),
@@ -139,47 +128,53 @@ class WelcomeScreen extends StatelessWidget {
           children: [
             Expanded(
               child: Divider(
-                  color: Colors.white.withValues(alpha: 0.18), thickness: 1),
+                  color: Colors.white.withOpacity(0.18), thickness: 1),
             ),
             Padding(
               padding: const EdgeInsets.symmetric(horizontal: 14),
               child: Text('or',
-                  style: sans(13, color: Colors.white.withValues(alpha: 0.45))),
+                  style: sans(13, color: Colors.white.withOpacity(0.45))),
             ),
             Expanded(
               child: Divider(
-                  color: Colors.white.withValues(alpha: 0.18), thickness: 1),
+                  color: Colors.white.withOpacity(0.18), thickness: 1),
             ),
           ],
         ),
         const SizedBox(height: 28),
-        GestureDetector(
-          onTap: () => _goToApp(context),
-          child: Container(
-            padding: const EdgeInsets.symmetric(vertical: 16),
-            decoration: BoxDecoration(
-              border: Border.all(
-                  color: kBeige.withValues(alpha: 0.45), width: 1.5),
-              borderRadius: BorderRadius.circular(14),
-            ),
-            child: Center(
-              child: Text('Try Demo',
-                  style: sans(15, weight: FontWeight.w600, color: kBeige)),
-            ),
-          ),
-        ),
+        _demoButton(context),
         const SizedBox(height: 14),
         Center(
           child: Text('No account needed',
-              style: sans(12, color: Colors.white.withValues(alpha: 0.35))),
+              style: sans(12, color: Colors.white.withOpacity(0.35))),
         ),
       ],
     );
   }
 
+  Widget _demoButton(BuildContext context) {
+    return InkWell(
+      onTap: () => _goToApp(context),
+      borderRadius: BorderRadius.circular(14),
+      child: Container(
+        padding: const EdgeInsets.symmetric(vertical: 16),
+        decoration: BoxDecoration(
+          border: Border.all(
+              color: kBeige.withOpacity(0.45), width: 1.5),
+          borderRadius: BorderRadius.circular(14),
+        ),
+        child: Center(
+          child: Text('Try Demo',
+              style: sans(15, weight: FontWeight.w600, color: kBeige)),
+        ),
+      ),
+    );
+  }
+
   Widget _authButton({required VoidCallback onTap, required Widget child}) {
-    return GestureDetector(
+    return InkWell(
       onTap: onTap,
+      borderRadius: BorderRadius.circular(14),
       child: Container(
         padding: const EdgeInsets.symmetric(vertical: 15),
         decoration: BoxDecoration(

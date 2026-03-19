@@ -171,24 +171,26 @@ class _PrequalificationPageState extends State<PrequalificationPage> {
             ),
         ],
       ),
-      body: PageView(
-        controller: _pageController,
-        physics: const NeverScrollableScrollPhysics(),
-        onPageChanged: (i) => setState(() => _currentPage = i),
-        children: [
-          _buildStep1(),
-          _buildStep2(),
-          _buildStep3(),
-          _buildStep4(),
-          _buildStep5(),
-          _buildStep6(),
-          _buildStep7(),
-          _buildStep8(),
-          _buildStep9(),
-          _buildStep10(),
-          _buildStep11(),
-          _buildStep12(),
-        ],
+      body: ResponsiveMaxWidth(
+        child: PageView(
+          controller: _pageController,
+          physics: const NeverScrollableScrollPhysics(),
+          onPageChanged: (i) => setState(() => _currentPage = i),
+          children: [
+            _buildStep1(),
+            _buildStep2(),
+            _buildStep3(),
+            _buildStep4(),
+            _buildStep5(),
+            _buildStep6(),
+            _buildStep7(),
+            _buildStep8(),
+            _buildStep9(),
+            _buildStep10(),
+            _buildStep11(),
+            _buildStep12(),
+          ],
+        ),
       ),
     );
   }
@@ -359,7 +361,7 @@ class _PrequalificationPageState extends State<PrequalificationPage> {
                 margin: const EdgeInsets.only(bottom: 10),
                 padding: const EdgeInsets.all(16),
                 decoration: BoxDecoration(
-                  color: hasDebt ? kGreen.withValues(alpha: 0.05) : Colors.white,
+                  color: hasDebt ? kGreen.withOpacity(0.05) : Colors.white,
                   border: Border.all(color: hasDebt ? kGreen : Colors.grey[200]!, width: hasDebt ? 2 : 1),
                   borderRadius: BorderRadius.circular(15),
                 ),
@@ -372,7 +374,7 @@ class _PrequalificationPageState extends State<PrequalificationPage> {
                           Text(t, style: sans(15, weight: hasDebt ? FontWeight.w700 : FontWeight.w500)),
                           if (hasDebt)
                             Text(
-                              'Payment: ${NumberFormat.currency(symbol: '\$').format(existingDebt.monthlyPayment)}/mo',
+                              'Payment: ${NumberFormat.currency(symbol: '\$').format(existingDebt.monthlyPayment.isNaN || existingDebt.monthlyPayment.isInfinite ? 0 : existingDebt.monthlyPayment)}/mo',
                               style: sans(12, color: kGreen, weight: FontWeight.w600),
                             ),
                         ],
@@ -455,7 +457,7 @@ class _PrequalificationPageState extends State<PrequalificationPage> {
           Center(child: Text('Slide to adjust or tap amount to type', style: sans(12, color: Colors.grey))),
         ],
         const SizedBox(height: 20),
-        _infoBanner('Total before taxes for all applicants', Colors.grey, Colors.grey.withValues(alpha: 0.05)),
+        _infoBanner('Total before taxes for all applicants', Colors.grey, Colors.grey.withOpacity(0.05)),
       ],
       onPressed: _next,
     );
@@ -591,7 +593,7 @@ class _PrequalificationPageState extends State<PrequalificationPage> {
         margin: const EdgeInsets.only(bottom: 12),
         padding: const EdgeInsets.all(20),
         decoration: BoxDecoration(
-          color: active ? kGreen.withValues(alpha: 0.05) : Colors.white,
+          color: active ? kGreen.withOpacity(0.05) : Colors.white,
           border: Border.all(color: active ? kGreen : Colors.grey[300]!, width: active ? 2 : 1),
           borderRadius: BorderRadius.circular(15),
         ),
@@ -918,65 +920,149 @@ class _PrequalificationResultsState extends State<PrequalificationResults> {
           const SizedBox(width: 8),
         ],
       ),
-      body: ListView(
-        padding: const EdgeInsets.fromLTRB(20, 10, 20, 100),
-        children: [
-          // ── Down-payment warning ──────────────────────────────────────
-          if (downShortfall > 0) ...[
-            Container(
-              padding: const EdgeInsets.all(16),
-              decoration: BoxDecoration(
-                color: Colors.orange.shade50,
-                borderRadius: BorderRadius.circular(16),
-                border: Border.all(color: Colors.orange.shade300),
-              ),
-              child: Row(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Icon(Icons.warning_amber_rounded, color: Colors.orange.shade700, size: 20),
-                  const SizedBox(width: 10),
-                  Expanded(
-                    child: Text(
-                      'Your down payment of ${fmt.format(_downPayment)} is below the minimum required (${fmt.format(minDown)}) for this purchase price. '
-                      'Increase your down payment by at least ${fmt.format(downShortfall)} to qualify.',
-                      style: sans(12, color: Colors.orange.shade800, height: 1.4),
-                    ),
-                  ),
-                ],
-              ),
-            ),
-            const SizedBox(height: 12),
-          ],
-          _resultCard(
-            title: 'Your estimated purchase price',
-            value: fmt.format(purchasePrice),
-            color: kGreen,
-            child: Column(
-              children: [
-                const SizedBox(height: 16),
-                Row(
+      body: Center(
+        child: ConstrainedBox(
+          constraints: const BoxConstraints(maxWidth: 800),
+          child: Column(
+            children: [
+              Expanded(
+                child: ListView(
+                  padding: const EdgeInsets.fromLTRB(20, 10, 20, 24),
                   children: [
-                    Expanded(
-                      child: Text(
-                        'Based on your income and debts, this is the maximum home price you may qualify for.',
-                        style: sans(13, color: Colors.grey[600], height: 1.4),
+                    // ── Down-payment warning ──────────────────────────────────────
+                    if (downShortfall > 0) ...[
+                      Container(
+                        padding: const EdgeInsets.all(16),
+                        decoration: BoxDecoration(
+                          color: Colors.orange.shade50,
+                          borderRadius: BorderRadius.circular(16),
+                          border: Border.all(color: Colors.orange.shade300),
+                        ),
+                        child: Row(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Icon(Icons.warning_amber_rounded, color: Colors.orange.shade700, size: 20),
+                            const SizedBox(width: 10),
+                            Expanded(
+                              child: Text(
+                                'Your down payment of ${fmt.format(_downPayment.isNaN || _downPayment.isInfinite ? 0 : _downPayment)} is below the minimum required (${fmt.format(minDown.isNaN || minDown.isInfinite ? 0 : minDown)}) for this purchase price. '
+                                'Increase your down payment by at least ${fmt.format(downShortfall.isNaN || downShortfall.isInfinite ? 0 : downShortfall)} to qualify.',
+                                style: sans(12, color: Colors.orange.shade800, height: 1.4),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                      const SizedBox(height: 12),
+                    ],
+                    _resultCard(
+                      title: 'Your estimated purchase price',
+                      value: fmt.format(purchasePrice.isNaN || purchasePrice.isInfinite ? 0 : purchasePrice),
+                      color: kGreen,
+                      child: Column(
+                        children: [
+                          const SizedBox(height: 16),
+                          Row(
+                            children: [
+                              Expanded(
+                                child: Text(
+                                  'Based on your income and debts, this is the maximum home price you may qualify for.',
+                                  style: sans(13, color: Colors.grey[600], height: 1.4),
+                                ),
+                              ),
+                              const SizedBox(width: 16),
+                              ClipRRect(
+                                borderRadius: BorderRadius.circular(14),
+                                child: Image.asset(
+                                  'assets/images/3dhome.jpg',
+                                  width: 100,
+                                  height: 80,
+                                  fit: BoxFit.cover,
+                                  errorBuilder: (context, error, stackTrace) => Container(
+                                    width: 100,
+                                    height: 80,
+                                    color: kMint,
+                                    child: const Icon(Icons.home_work_outlined, color: kGreen),
+                                  ),
+                                ),
+                              ),
+                            ],
+                          ),
+                          const SizedBox(height: 20),
+                          ElevatedButton(
+                            onPressed: () => _showContactAdvisor(purchasePrice),
+                            style: ElevatedButton.styleFrom(
+                              backgroundColor: kGreen,
+                              foregroundColor: Colors.white,
+                              minimumSize: const Size(double.infinity, 54),
+                              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(15)),
+                              elevation: 0,
+                            ),
+                            child: Text('Get Pre-approved', style: sans(15, weight: FontWeight.w700)),
+                          ),
+                        ],
                       ),
                     ),
-                    const SizedBox(width: 16),
-                    ClipRRect(
-                      borderRadius: BorderRadius.circular(14),
-                      child: Image.asset(
-                        'assets/images/3dhome.jpg',
-                        width: 100,
-                        height: 80,
-                        fit: BoxFit.cover,
+                    const SizedBox(height: 16),
+                    _resultCard(
+                      title: 'Monthly cost breakdown',
+                      value: fmt.format(totalMonthlyOutflow.isNaN || totalMonthlyOutflow.isInfinite ? 0 : totalMonthlyOutflow),
+                      child: Column(
+                        children: [
+                          _kv('Mortgage payment', fmt.format(actualMortgagePayment.isNaN || actualMortgagePayment.isInfinite ? 0 : actualMortgagePayment)),
+                          _kv('Property tax (est.)', fmt.format(propertyTax.isNaN || propertyTax.isInfinite ? 0 : propertyTax)),
+                          _kv('Heating (est.)', fmt.format(_heating.isNaN || _heating.isInfinite ? 0 : _heating)),
+                          if (widget.isCondo && _monthlyCondoFee > 0)
+                            _kv('Condo fees', fmt.format(_monthlyCondoFee.isNaN || _monthlyCondoFee.isInfinite ? 0 : _monthlyCondoFee)),
+                          const Divider(height: 24),
+                          _editButton('Edit expenses', _editExpenses),
+                        ],
+                      ),
+                    ),
+                    const SizedBox(height: 16),
+                    _resultCard(
+                      title: 'Home price breakdown',
+                      value: fmt.format(purchasePrice.isNaN || purchasePrice.isInfinite ? 0 : purchasePrice),
+                      child: Column(
+                        children: [
+                          _kv('Down payment', fmt.format(_downPayment.isNaN || _downPayment.isInfinite ? 0 : _downPayment)),
+                          _kv('Mortgage insurance', isInsurable ? fmt.format(cmhc.isNaN || cmhc.isInfinite ? 0 : cmhc) : 'N/A (≥\$1M)'),
+                          _kv('Net mortgage amount', fmt.format(maxPrincipal.isNaN || maxPrincipal.isInfinite ? 0 : maxPrincipal)),
+                          _kv('Est. closing costs (1.5%)', fmt.format((purchasePrice * 0.015).isNaN || (purchasePrice * 0.015).isInfinite ? 0 : purchasePrice * 0.015)),
+                          const Divider(height: 24),
+                          _editButton('Edit down payment', _editDownPayment),
+                        ],
+                      ),
+                    ),
+                    const SizedBox(height: 16),
+                    _resultCard(
+                      title: 'Mortgage Details',
+                      value: '${(contractRate * 100).toStringAsFixed(2)}%',
+                      child: Column(
+                        children: [
+                          _kv('Total amount', fmt.format(totalMortgage.isNaN || totalMortgage.isInfinite ? 0 : totalMortgage)),
+                          _kv('Amortization', '$_amortization years'),
+                          _kv('Stress test rate', '${(_stressRate * 100).toStringAsFixed(2)}%'),
+                          _kv('Insurable?', isInsurable ? 'Yes' : 'No (≥\$1M)'),
+                          _kv('Loan to value', '${(maxPrincipal / purchasePrice * 100).toStringAsFixed(1)}%'),
+                          _kv('GDS limit / TDS limit', '${(_gdsLimit * 100).toStringAsFixed(1)}% / ${(_tdsLimit * 100).toStringAsFixed(1)}%'),
+                          const Divider(height: 24),
+                          _editButton('Edit qualification', _editQualification),
+                        ],
                       ),
                     ),
                   ],
                 ),
-                const SizedBox(height: 20),
-                ElevatedButton(
-                  onPressed: () => _showContactAdvisor(purchasePrice),
+              ),
+              Container(
+                width: double.infinity,
+                decoration: const BoxDecoration(
+                  color: Colors.white,
+                  boxShadow: [BoxShadow(color: Color(0x0A000000), blurRadius: 10, offset: Offset(0, -4))],
+                ),
+                padding: EdgeInsets.fromLTRB(20, 12, 20, 12 + MediaQuery.of(context).padding.bottom),
+                child: ElevatedButton(
+                  onPressed: _saveAndExit,
                   style: ElevatedButton.styleFrom(
                     backgroundColor: kGreen,
                     foregroundColor: Colors.white,
@@ -984,77 +1070,11 @@ class _PrequalificationResultsState extends State<PrequalificationResults> {
                     shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(15)),
                     elevation: 0,
                   ),
-                  child: Text('Get Pre-approved', style: sans(15, weight: FontWeight.w700)),
+                  child: Text('Save and Exit', style: sans(16, weight: FontWeight.w700)),
                 ),
-              ],
-            ),
+              ),
+            ],
           ),
-          const SizedBox(height: 16),
-          _resultCard(
-            title: 'Monthly cost breakdown',
-            value: fmt.format(totalMonthlyOutflow),
-            child: Column(
-              children: [
-                _kv('Mortgage payment', fmt.format(actualMortgagePayment)),
-                _kv('Property tax (est.)', fmt.format(propertyTax)),
-                _kv('Heating (est.)', fmt.format(_heating)),
-                if (widget.isCondo && _monthlyCondoFee > 0)
-                  _kv('Condo fees', fmt.format(_monthlyCondoFee)),
-                const Divider(height: 24),
-                _editButton('Edit expenses', _editExpenses),
-              ],
-            ),
-          ),
-          const SizedBox(height: 16),
-          _resultCard(
-            title: 'Home price breakdown',
-            value: fmt.format(purchasePrice),
-            child: Column(
-              children: [
-                _kv('Down payment', fmt.format(_downPayment)),
-                _kv('Mortgage insurance', isInsurable ? fmt.format(cmhc) : 'N/A (≥\$1M)'),
-                _kv('Net mortgage amount', fmt.format(maxPrincipal)),
-                _kv('Est. closing costs (1.5%)', fmt.format(purchasePrice * 0.015)),
-                const Divider(height: 24),
-                _editButton('Edit down payment', _editDownPayment),
-              ],
-            ),
-          ),
-          const SizedBox(height: 16),
-          _resultCard(
-            title: 'Mortgage Details',
-            value: '${(contractRate * 100).toStringAsFixed(2)}%',
-            child: Column(
-              children: [
-                _kv('Total amount', fmt.format(totalMortgage)),
-                _kv('Amortization', '$_amortization years'),
-                _kv('Stress test rate', '${(_stressRate * 100).toStringAsFixed(2)}%'),
-                _kv('Insurable?', isInsurable ? 'Yes' : 'No (≥\$1M)'),
-                _kv('Loan to value', '${(maxPrincipal / purchasePrice * 100).toStringAsFixed(1)}%'),
-                _kv('GDS limit / TDS limit', '${(_gdsLimit * 100).toStringAsFixed(1)}% / ${(_tdsLimit * 100).toStringAsFixed(1)}%'),
-                const Divider(height: 24),
-                _editButton('Edit qualification', _editQualification),
-              ],
-            ),
-          ),
-        ],
-      ),
-      bottomNavigationBar: Container(
-        padding: EdgeInsets.fromLTRB(20, 12, 20, 12 + MediaQuery.of(context).padding.bottom),
-        decoration: const BoxDecoration(
-          color: Colors.white,
-          boxShadow: [BoxShadow(color: Color(0x0A000000), blurRadius: 10, offset: Offset(0, -4))],
-        ),
-        child: ElevatedButton(
-          onPressed: _saveAndExit,
-          style: ElevatedButton.styleFrom(
-            backgroundColor: kGreen,
-            foregroundColor: Colors.white,
-            minimumSize: const Size(double.infinity, 54),
-            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(15)),
-            elevation: 0,
-          ),
-          child: Text('Save and Exit', style: sans(16, weight: FontWeight.w700)),
         ),
       ),
     );
@@ -1188,13 +1208,13 @@ class _PrequalificationResultsState extends State<PrequalificationResults> {
           children: [
             Text('Contact Advisor', style: serif(28)),
             const SizedBox(height: 12),
-            Text('We found a pre-qualification for approximately ${fmt.format(price)} in ${widget.city}. Send this message to an advisor to start your official pre-approval.', style: sans(14, color: Colors.grey[600], height: 1.5)),
+            Text('We found a pre-qualification for approximately ${fmt.format(price.isNaN || price.isInfinite ? 0 : price)} in ${widget.city}. Send this message to an advisor to start your official pre-approval.', style: sans(14, color: Colors.grey[600], height: 1.5)),
             const SizedBox(height: 24),
             Container(
               padding: const EdgeInsets.all(16),
               decoration: BoxDecoration(color: kMint, borderRadius: BorderRadius.circular(12)),
               child: Text(
-                'Hello, I am looking for a pre-approval for ${fmt.format(price)} in ${widget.city}. My household income is ${fmt.format(_income)} and I have a down payment of ${fmt.format(_downPayment)}.',
+                'Hello, I am looking for a pre-approval for ${fmt.format(price.isNaN || price.isInfinite ? 0 : price)} in ${widget.city}. My household income is ${fmt.format(_income.isNaN || _income.isInfinite ? 0 : _income)} and I have a down payment of ${fmt.format(_downPayment.isNaN || _downPayment.isInfinite ? 0 : _downPayment)}.',
                 style: sans(14, height: 1.4),
               ),
             ),
@@ -1216,7 +1236,7 @@ class _PrequalificationResultsState extends State<PrequalificationResults> {
       decoration: BoxDecoration(
         color: Colors.white,
         borderRadius: BorderRadius.circular(20),
-        boxShadow: [BoxShadow(color: Colors.black.withValues(alpha: 0.05), blurRadius: 10, offset: const Offset(0, 4))],
+        boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.05), blurRadius: 10, offset: const Offset(0, 4))],
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,

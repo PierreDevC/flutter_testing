@@ -1,7 +1,10 @@
 {
   "permissions": {
     "allow": [
-      "Bash(flutter pub:*)"
+      "Bash(flutter pub:*)",
+      "Read(//Applications/**)",
+      "Bash(find /Applications -name *.app)",
+      "Bash(gh pr:*)"
     ]
   }
 }

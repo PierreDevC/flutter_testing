@@ -230,29 +230,41 @@ class _MortgageCalculatorPageState extends State<MortgageCalculatorPage> {
           ),
         ],
       ),
-      body: ListView(
-        padding: const EdgeInsets.fromLTRB(20, 10, 20, 120),
-        children: [
-          _buildTypeCard(),
-          const SizedBox(height: 20),
-          _buildFrequencySwitcher(),
-          const SizedBox(height: 12),
-          _buildInputSection(),
-          const SizedBox(height: 12),
-          _buildStrategySection(),
-          const SizedBox(height: 24),
-          _buildChartSection(results),
-          const SizedBox(height: 20),
-          _buildInfoSection(results),
-        ],
-      ),
-      bottomNavigationBar: Container(
-        padding: EdgeInsets.fromLTRB(20, 12, 20, 12 + MediaQuery.of(context).padding.bottom),
-        decoration: const BoxDecoration(
-          color: Colors.white,
-          boxShadow: [BoxShadow(color: Color(0x0A000000), blurRadius: 10, offset: Offset(0, -4))],
+      body: Center(
+        child: ConstrainedBox(
+          constraints: const BoxConstraints(maxWidth: 800),
+          child: Column(
+            children: [
+              Expanded(
+                child: ListView(
+                  padding: const EdgeInsets.fromLTRB(20, 10, 20, 24),
+                  children: [
+                    _buildTypeCard(),
+                    const SizedBox(height: 20),
+                    _buildFrequencySwitcher(),
+                    const SizedBox(height: 12),
+                    _buildInputSection(),
+                    const SizedBox(height: 12),
+                    _buildStrategySection(),
+                    const SizedBox(height: 24),
+                    _buildChartSection(results),
+                    const SizedBox(height: 20),
+                    _buildInfoSection(results),
+                  ],
+                ),
+              ),
+              Container(
+                width: double.infinity,
+                decoration: const BoxDecoration(
+                  color: Colors.white,
+                  boxShadow: [BoxShadow(color: Color(0x0A000000), blurRadius: 10, offset: Offset(0, -4))],
+                ),
+                padding: EdgeInsets.fromLTRB(20, 12, 20, 12 + MediaQuery.of(context).padding.bottom),
+                child: _buildResultDisplay(results),
+              ),
+            ],
+          ),
         ),
-        child: _buildResultDisplay(results),
       ),
     );
   }
@@ -267,14 +279,14 @@ class _MortgageCalculatorPageState extends State<MortgageCalculatorPage> {
         decoration: BoxDecoration(
           color: Colors.white,
           borderRadius: BorderRadius.circular(20),
-          boxShadow: [BoxShadow(color: Colors.black.withValues(alpha: 0.05), blurRadius: 10, offset: const Offset(0, 4))],
+          boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.05), blurRadius: 10, offset: const Offset(0, 4))],
         ),
         child: Row(
           children: [
             Container(
               width: 48,
               height: 48,
-              decoration: BoxDecoration(color: kGreen.withValues(alpha: 0.1), borderRadius: BorderRadius.circular(12)),
+              decoration: BoxDecoration(color: kGreen.withOpacity(0.1), borderRadius: BorderRadius.circular(12)),
               child: const Icon(Icons.swap_vert_rounded, color: kGreen),
             ),
             const SizedBox(width: 16),
@@ -320,7 +332,7 @@ class _MortgageCalculatorPageState extends State<MortgageCalculatorPage> {
                     color: active ? kGreen : Colors.white,
                     borderRadius: BorderRadius.circular(20),
                     border: Border.all(color: active ? kGreen : Colors.grey[200]!),
-                    boxShadow: active ? [BoxShadow(color: kGreen.withValues(alpha: 0.2), blurRadius: 8, offset: const Offset(0, 4))] : null,
+                    boxShadow: active ? [BoxShadow(color: kGreen.withOpacity(0.2), blurRadius: 8, offset: const Offset(0, 4))] : null,
                   ),
                   child: Center(
                     child: Text(
@@ -421,9 +433,6 @@ class _MortgageCalculatorPageState extends State<MortgageCalculatorPage> {
     int years = _amortYears;
     
     // 1. Baseline: same frequency as selected, non-accelerated, no prepayments.
-    //    Accelerated variants compare against their non-accelerated counterpart so
-    //    the savings banner reflects only the benefit of acceleration (and any
-    //    prepayment strategies), not an arbitrary monthly-vs-biweekly timing gap.
     final baselineFreq = switch (_frequency) {
       PaymentFrequency.acceleratedBiweekly => PaymentFrequency.biweekly,
       PaymentFrequency.acceleratedWeekly   => PaymentFrequency.weekly,
@@ -466,11 +475,11 @@ class _MortgageCalculatorPageState extends State<MortgageCalculatorPage> {
     final yearsSaved = max(0, years - (activeSchedule.isEmpty ? 0 : activeSchedule.last.year));
 
     return _CalcResult(
-      primaryValue: primary,
-      totalInterest: totalInterest,
+      primaryValue: primary.isNaN ? 0 : primary,
+      totalInterest: totalInterest.isNaN ? 0 : totalInterest,
       principal: principal,
-      totalCost: principal + max(0, totalInterest),
-      interestSaved: interestSaved,
+      totalCost: (principal + max(0, totalInterest)).isNaN ? principal : (principal + max(0, totalInterest)),
+      interestSaved: interestSaved.isNaN ? 0 : interestSaved,
       yearsSaved: yearsSaved,
     );
   }
@@ -479,11 +488,11 @@ class _MortgageCalculatorPageState extends State<MortgageCalculatorPage> {
     String label = '';
     String value = '';
     switch (_type) {
-      case CalcType.payment: label = '${_frequency.label} Payment'; value = _fmt.format(res.primaryValue);
-      case CalcType.amount: label = 'Balance in $_showBalanceAtYear Years'; value = _fmt.format(res.primaryValue);
+      case CalcType.payment: label = '${_frequency.label} Payment'; value = _fmt.format(res.primaryValue.isNaN || res.primaryValue.isInfinite ? 0 : res.primaryValue);
+      case CalcType.amount: label = 'Balance in $_showBalanceAtYear Years'; value = _fmt.format(res.primaryValue.isNaN || res.primaryValue.isInfinite ? 0 : res.primaryValue);
       case CalcType.rate: label = 'Implied Interest Rate'; value = '${res.primaryValue.toStringAsFixed(2)}%';
       case CalcType.amortization: label = 'Amortization Period'; value = '${res.primaryValue.toInt()} Years';
-      case CalcType.reverse: label = 'Future Balance'; value = _fmt.format(res.primaryValue);
+      case CalcType.reverse: label = 'Future Balance'; value = _fmt.format(res.primaryValue.isNaN || res.primaryValue.isInfinite ? 0 : res.primaryValue);
     }
 
     return Container(
@@ -492,21 +501,21 @@ class _MortgageCalculatorPageState extends State<MortgageCalculatorPage> {
       decoration: BoxDecoration(
         gradient: const LinearGradient(colors: [kGreen, Color(0xFF1E4D38)], begin: Alignment.topLeft, end: Alignment.bottomRight),
         borderRadius: BorderRadius.circular(20),
-        boxShadow: [BoxShadow(color: kGreen.withValues(alpha: 0.3), blurRadius: 12, offset: const Offset(0, 4))],
+        boxShadow: [BoxShadow(color: kGreen.withOpacity(0.3), blurRadius: 12, offset: const Offset(0, 4))],
       ),
       child: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
-          Text(label, style: sans(12, color: Colors.white.withValues(alpha: 0.7), weight: FontWeight.w600)),
+          Text(label, style: sans(12, color: Colors.white.withOpacity(0.7), weight: FontWeight.w600)),
           const SizedBox(height: 4),
           Text(value, style: serif(32, color: Colors.white)),
           if (res.interestSaved > 100) ...[
             const SizedBox(height: 8),
             Container(
               padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
-              decoration: BoxDecoration(color: kAccent.withValues(alpha: 0.2), borderRadius: BorderRadius.circular(16)),
+              decoration: BoxDecoration(color: kAccent.withOpacity(0.2), borderRadius: BorderRadius.circular(16)),
               child: Text(
-                'Saving ${_fmt.format(res.interestSaved)} in interest',
+                'Saving ${_fmt.format(res.interestSaved.isNaN || res.interestSaved.isInfinite ? 0 : res.interestSaved)} in interest',
                 style: sans(11, weight: FontWeight.w700, color: Colors.white),
               ),
             ),
@@ -556,17 +565,17 @@ class _MortgageCalculatorPageState extends State<MortgageCalculatorPage> {
       decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(24)),
       child: Column(
         children: [
-          _kvRow('Total Principal', _fmt.format(res.principal)),
-          _kvRow('Total Interest', _fmt.format(res.totalInterest)),
+          _kvRow('Total Principal', _fmt.format(res.principal.isNaN || res.principal.isInfinite ? 0 : res.principal)),
+          _kvRow('Total Interest', _fmt.format(res.totalInterest.isNaN || res.totalInterest.isInfinite ? 0 : res.totalInterest)),
           const Divider(height: 24),
-          _kvRow('Total Cost of Borrowing', _fmt.format(res.totalCost), isBold: true),
+          _kvRow('Total Cost of Borrowing', _fmt.format(res.totalCost.isNaN || res.totalCost.isInfinite ? 0 : res.totalCost), isBold: true),
         ],
       ),
     );
   }
 
   Widget _slider(String label, double value, double min, double max, double step, ValueChanged<double> onChanged, {bool isPct = false, bool isYrs = false}) {
-    String display = isPct ? '${value.toStringAsFixed(2)}%' : isYrs ? '${value.toInt()} yrs' : _fmt.format(value);
+    String display = isPct ? '${value.toStringAsFixed(2)}%' : isYrs ? '${value.toInt()} yrs' : _fmt.format(value.isNaN || value.isInfinite ? 0 : value);
     return Padding(
       padding: const EdgeInsets.only(bottom: 16),
       child: Column(
@@ -584,7 +593,7 @@ class _MortgageCalculatorPageState extends State<MortgageCalculatorPage> {
               activeTrackColor: kGreen,
               inactiveTrackColor: kMint,
               thumbColor: kGreen,
-              overlayColor: kGreen.withValues(alpha: 0.1),
+              overlayColor: kGreen.withOpacity(0.1),
               trackHeight: 4,
             ),
             child: Slider(
@@ -699,7 +708,7 @@ class _TypeSelectorSheetState extends State<_TypeSelectorSheet> {
                       margin: const EdgeInsets.only(bottom: 12),
                       padding: const EdgeInsets.all(20),
                       decoration: BoxDecoration(
-                        color: active ? kGreen.withValues(alpha: 0.05) : Colors.white,
+                        color: active ? kGreen.withOpacity(0.05) : Colors.white,
                         border: Border.all(color: active ? kGreen : Colors.grey[200]!, width: active ? 2 : 1),
                         borderRadius: BorderRadius.circular(16),
                       ),
@@ -755,16 +764,19 @@ class _PiePainter extends CustomPainter {
     final rect = Rect.fromLTWH(0, 0, size.width, size.height);
     final paint = Paint()..style = PaintingStyle.stroke..strokeWidth = 24..strokeCap = StrokeCap.round;
 
+    final p = principalPct.isNaN ? 0.0 : principalPct;
+    final i = interestPct.isNaN ? 0.0 : interestPct;
+
     double startAngle = -pi / 2;
     
     // Principal
     paint.color = kAccent;
-    canvas.drawArc(rect, startAngle, (2 * pi * principalPct).clamp(0.0, 2 * pi), false, paint);
+    canvas.drawArc(rect, startAngle, (2 * pi * p).clamp(0.0, 2 * pi), false, paint);
     
     // Interest
-    startAngle += 2 * pi * principalPct;
+    startAngle += 2 * pi * p;
     paint.color = const Color(0xFF2B82D0);
-    canvas.drawArc(rect, startAngle, (2 * pi * interestPct).clamp(0.0, 2 * pi), false, paint);
+    canvas.drawArc(rect, startAngle, (2 * pi * i).clamp(0.0, 2 * pi), false, paint);
   }
 
   @override

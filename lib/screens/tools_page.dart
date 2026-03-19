@@ -1,65 +1,83 @@
 import 'package:flutter/material.dart';
+import 'package:go_router/go_router.dart';
 import '../core/theme.dart';
-import 'scenario_list_page.dart';
 
 class ToolsPage extends StatelessWidget {
   const ToolsPage({super.key});
 
   @override
   Widget build(BuildContext context) {
-    return SafeArea(
-      child: SingleChildScrollView(
-        padding: const EdgeInsets.symmetric(horizontal: 20),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            const SizedBox(height: 16),
-            Text('Tools', style: serif(32)),
-            const SizedBox(height: 4),
-            Text('Everything you need to plan your mortgage',
-                style: sans(14, color: Colors.grey[600])),
-            const SizedBox(height: 24),
-            _toolItem(
-              icon: Icons.how_to_reg_outlined,
-              label: 'Prequalification Tool',
-              description:
-                  'Estimate how much you can borrow based on your income and debts.',
-              color: const Color(0xFF3DAA5C),
-              bgColor: const Color(0xFFDCF5DC),
-              onTap: () {
-                Navigator.push(
-                  context,
-                  MaterialPageRoute(
-                    builder: (context) => const ScenarioListPage(type: ScenarioToolType.prequal),
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final isWide = constraints.maxWidth >= 800;
+        
+        return SafeArea(
+          child: SingleChildScrollView(
+            padding: EdgeInsets.symmetric(horizontal: isWide ? 40 : 20, vertical: isWide ? 40 : 16),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text('Tools', style: serif(isWide ? 44 : 32, weight: FontWeight.w700)),
+                const SizedBox(height: 8),
+                Text('Everything you need to plan your mortgage',
+                    style: sans(16, color: Colors.grey[600])),
+                const SizedBox(height: 32),
+                
+                if (isWide)
+                  GridView.count(
+                    crossAxisCount: 2,
+                    shrinkWrap: true,
+                    physics: const NeverScrollableScrollPhysics(),
+                    crossAxisSpacing: 20,
+                    mainAxisSpacing: 20,
+                    childAspectRatio: 2.2,
+                    children: _buildToolItems(context),
+                  )
+                else
+                  Column(
+                    children: _buildToolItems(context, withSpacing: true),
                   ),
-                );
-              },
+                
+                const SizedBox(height: 32),
+              ],
             ),
-            const SizedBox(height: 12),
-            _toolItem(
-              icon: Icons.calculate_outlined,
-              label: 'Mortgage Calculator',
-              description:
-                  'Calculate your monthly payments and total cost of borrowing.',
-              color: const Color(0xFF2B82D0),
-              bgColor: const Color(0xFFDCEEF9),
-              onTap: () {
-                Navigator.push(
-                  context,
-                  MaterialPageRoute(
-                    builder: (context) => const ScenarioListPage(type: ScenarioToolType.mortgage),
-                  ),
-                );
-              },
-            ),
-            const SizedBox(height: 32),
-          ],
-        ),
-      ),
+          ),
+        );
+      }
     );
   }
 
+  List<Widget> _buildToolItems(BuildContext context, {bool withSpacing = false}) {
+    final items = [
+      _toolItem(
+        context: context,
+        icon: Icons.how_to_reg_outlined,
+        label: 'Prequalification Tool',
+        description:
+            'Estimate how much you can borrow based on your income and debts.',
+        color: const Color(0xFF3DAA5C),
+        bgColor: const Color(0xFFDCF5DC),
+        onTap: () => context.push('/tools/prequal'),
+      ),
+      _toolItem(
+        context: context,
+        icon: Icons.calculate_outlined,
+        label: 'Mortgage Calculator',
+        description:
+            'Calculate your monthly payments and total cost of borrowing.',
+        color: const Color(0xFF2B82D0),
+        bgColor: const Color(0xFFDCEEF9),
+        onTap: () => context.push('/tools/mortgage'),
+      ),
+    ];
+
+    if (!withSpacing) return items;
+
+    return items.expand((w) => [w, const SizedBox(height: 12)]).toList()..removeLast();
+  }
+
   Widget _toolItem({
+    required BuildContext context,
     required IconData icon,
     required String label,
     required String description,
@@ -68,45 +86,38 @@ class ToolsPage extends StatelessWidget {
     bool comingSoon = false,
     VoidCallback? onTap,
   }) {
-    return GestureDetector(
-      onTap: comingSoon ? null : onTap,
-      child: Opacity(
-        opacity: comingSoon ? 0.55 : 1.0,
-        child: Container(
-          padding: const EdgeInsets.all(18),
-          decoration: BoxDecoration(
-            color: Colors.white,
-            borderRadius: BorderRadius.circular(18),
-            boxShadow: [
-              BoxShadow(
-                color: Colors.black.withValues(alpha: 0.05),
-                blurRadius: 10,
-                offset: const Offset(0, 3),
-              ),
-            ],
-          ),
+    return Card(
+      elevation: 0,
+      color: Colors.white,
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+      child: InkWell(
+        onTap: comingSoon ? null : onTap,
+        borderRadius: BorderRadius.circular(20),
+        child: Padding(
+          padding: const EdgeInsets.all(24),
           child: Row(
             children: [
               Container(
-                width: 50,
-                height: 50,
+                width: 56,
+                height: 56,
                 decoration: BoxDecoration(
-                    color: bgColor, borderRadius: BorderRadius.circular(14)),
-                child: Icon(icon, color: color, size: 24),
+                    color: bgColor, borderRadius: BorderRadius.circular(16)),
+                child: Icon(icon, color: color, size: 28),
               ),
-              const SizedBox(width: 14),
+              const SizedBox(width: 20),
               Expanded(
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
+                  mainAxisAlignment: MainAxisAlignment.center,
                   children: [
                     Row(
                       children: [
-                        Text(label, style: serif(16)),
+                        Text(label, style: serif(18, weight: FontWeight.w600)),
                         if (comingSoon) ...[
-                          const SizedBox(width: 8),
+                          const SizedBox(width: 10),
                           Container(
                             padding: const EdgeInsets.symmetric(
-                                horizontal: 8, vertical: 2),
+                                horizontal: 10, vertical: 4),
                             decoration: BoxDecoration(
                                 color: Colors.grey[200],
                                 borderRadius: BorderRadius.circular(10)),
@@ -118,15 +129,15 @@ class ToolsPage extends StatelessWidget {
                         ],
                       ],
                     ),
-                    const SizedBox(height: 4),
+                    const SizedBox(height: 6),
                     Text(description,
-                        style: sans(13, color: Colors.grey[500], height: 1.4)),
+                        style: sans(14, color: Colors.grey[500], height: 1.4)),
                   ],
                 ),
               ),
               if (!comingSoon)
                 Icon(Icons.chevron_right_rounded,
-                    color: Colors.grey[400], size: 22),
+                    color: Colors.grey[400], size: 28),
             ],
           ),
         ),
